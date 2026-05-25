@@ -9,9 +9,21 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SettingRouteImport } from './routes/setting'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as CustomerRouteImport } from './routes/customer'
 import { Route as IndexRouteImport } from './routes/index'
 
+const SettingRoute = SettingRouteImport.update({
+  id: '/setting',
+  path: '/setting',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CustomerRoute = CustomerRouteImport.update({
   id: '/customer',
   path: '/customer',
@@ -26,31 +38,53 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/customer': typeof CustomerRoute
+  '/login': typeof LoginRoute
+  '/setting': typeof SettingRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/customer': typeof CustomerRoute
+  '/login': typeof LoginRoute
+  '/setting': typeof SettingRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/customer': typeof CustomerRoute
+  '/login': typeof LoginRoute
+  '/setting': typeof SettingRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/customer'
+  fullPaths: '/' | '/customer' | '/login' | '/setting'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/customer'
-  id: '__root__' | '/' | '/customer'
+  to: '/' | '/customer' | '/login' | '/setting'
+  id: '__root__' | '/' | '/customer' | '/login' | '/setting'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CustomerRoute: typeof CustomerRoute
+  LoginRoute: typeof LoginRoute
+  SettingRoute: typeof SettingRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/setting': {
+      id: '/setting'
+      path: '/setting'
+      fullPath: '/setting'
+      preLoaderRoute: typeof SettingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/customer': {
       id: '/customer'
       path: '/customer'
@@ -71,6 +105,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CustomerRoute: CustomerRoute,
+  LoginRoute: LoginRoute,
+  SettingRoute: SettingRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

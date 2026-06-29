@@ -9,6 +9,8 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 
+import { Add } from "iconsax-react";
+
 import { Link, useLocation } from "@tanstack/react-router";
 
 import {
@@ -19,6 +21,7 @@ import {
   Settings,
   UserRound,
 } from "lucide-react";
+import { Button } from "../ui/button";
 
 const menuItems = [
   {
@@ -66,6 +69,17 @@ export default function AppSideBar() {
       </SidebarHeader>
 
       <SidebarContent className="bg-[#008B1D] px-3">
+        <div className="flex items-center gap-2 bg-[#16b116] hover:bg-[#178117] rounded-lg">
+          <Add
+            size={30}
+            color="currentColor"
+            variant="Outline"
+            className="pl-2"
+          />
+          <Link to="/loan/customer-identify">
+            <Button>Tạo hồ sơ mới</Button>
+          </Link>
+        </div>
         <SidebarMenu className="space-y-2">
           {menuItems.map((item) => {
             const isActive = location.pathname === item.url;

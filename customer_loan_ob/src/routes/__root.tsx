@@ -1,40 +1,47 @@
-import AppHeader from "@/components/shared/AppHeader"
-import AppSideBar from "@/components/shared/AppSideBar"
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import { createRootRoute, Outlet, useRouterState } from "@tanstack/react-router"
+import AppHeader from "@/components/shared/AppHeader";
+import AppSideBar from "@/components/shared/AppSideBar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import {
+  createRootRoute,
+  Outlet,
+  useRouterState,
+} from "@tanstack/react-router";
+import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 
 export const Route = createRootRoute({
   component: RootLayout,
-})
+});
 
-const PUBLIC_ROUTES = ["/login", "/forgot-password", "/reset-password"]
+const PUBLIC_ROUTES = ["/login", "/forgot-password", "/reset-password"];
 
 function RootLayout() {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
-  })
+  });
 
-  const isPublicRoute = PUBLIC_ROUTES.includes(pathname)
-
-  if (isPublicRoute) {
-    return <Outlet />
-  }
+  const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
 
   return (
-    <SidebarProvider className="[--sidebar-width:240px] [--sidebar-width-icon:64px]">
-      <div className="flex min-h-screen w-full bg-background text-foreground">
-        {/* Sidebar giữ nguyên màu nhờ sidebar variables cố định */}
-        <AppSideBar />
+    <>
+      {isPublicRoute ? (
+        <Outlet />
+      ) : (
+        <SidebarProvider className="[--sidebar-width:240px] [--sidebar-width-icon:64px]">
+          <div className="flex min-h-screen w-full bg-background text-foreground">
+            <AppSideBar />
 
-        {/* Phần này sẽ đổi màu theo dark/light */}
-        <SidebarInset className="min-w-0 flex-1 bg-background text-foreground transition-colors duration-300">
-          <AppHeader />
+            <SidebarInset className="min-w-0 flex-1 bg-background text-foreground transition-colors duration-300">
+              <AppHeader />
 
-          <main className="min-w-0 bg-background text-foreground transition-colors duration-300">
-            <Outlet />
-          </main>
-        </SidebarInset>
-      </div>
-    </SidebarProvider>
-  )
+              <main className="min-w-0 bg-background text-foreground transition-colors duration-300">
+                <Outlet />
+              </main>
+            </SidebarInset>
+          </div>
+        </SidebarProvider>
+      )}
+
+      <TanStackRouterDevtools position="bottom-right" initialIsOpen={false} />
+    </>
+  );
 }

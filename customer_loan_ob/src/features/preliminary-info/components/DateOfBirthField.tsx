@@ -50,8 +50,8 @@ export function DateOfBirthField({ form }: DateOfBirthFieldProps) {
                     variant="outline"
                     className={
                       selectedDate
-                        ? "h-12 w-full justify-between rounded-xl bg-white px-4 text-left font-normal text-[#111827]"
-                        : "h-12 w-full justify-between rounded-xl bg-white px-4 text-left font-normal text-[#94a3b8]"
+                        ? "h-12 w-full justify-between rounded-xl border border-[#dbe5dd] bg-white px-4 text-left font-normal text-[#111827]"
+                        : "h-12 w-full justify-between rounded-xl border border-[#dbe5dd] bg-white px-4 text-left font-normal text-[#94a3b8]"
                     }
                   >
                     <span>
@@ -79,7 +79,7 @@ export function DateOfBirthField({ form }: DateOfBirthFieldProps) {
                     mode="single"
                     selected={selectedDate}
                     onSelect={(date) => {
-                      field.onChange(date ? format(date, "dd/MM/yyyy") : "");
+                      field.onChange(date ? format(date, "yyyy-MM-dd") : "");
                     }}
                     disabled={(date) =>
                       date > new Date() || date < new Date("1900-01-01")

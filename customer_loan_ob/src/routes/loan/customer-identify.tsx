@@ -8,6 +8,7 @@ import {
   Calendar as CalendarIcon,
   DocumentText,
   Gallery,
+  Refresh,
   Trash,
   User,
 } from "iconsax-react";
@@ -43,10 +44,21 @@ import {
 
 import { customerIdentifyApi } from "@/features/customer-identify/api/customer-identify.api";
 
-import { saveStep1Identity } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
+import {
+  getStep1Identity,
+  saveStep1Identity,
+} from "@/features/loan-onboarding/storage/loan-onboarding.storage";
+
+import {
+  clearAllCccdCachedImages,
+  clearCccdCachedImage,
+  getCccdCachedImages,
+  setCccdCachedImage,
+} from "@/features/customer-identify/storage/cccd-image-cache";
 
 import type {
   CustomerIdentifyResponse,
+  CustomerOcrData,
   UploadedImage,
   UploadSide,
 } from "@/features/customer-identify/types/customer-identify.type";
@@ -61,13 +73,54 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
+const CUSTOMER_IDENTIFY_OCR_KEY = "customerIdentifyOcrData";
+
+type OcrStatus = {
+  type: "success" | "error";
+  message: string;
+};
+
+function convertDdMmYyyyToIsoDate(value?: string) {
+  if (!value) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const parts = value.split("/");
+
+  if (parts.length !== 3) {
+    return value;
+  }
+
+  const [day, month, year] = parts;
+
+  if (!day || !month || !year) {
+    return value;
+  }
+
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
 function CustomerIdentifyScreen() {
   const navigate = useNavigate();
 
-  const [frontCccd, setFrontCccd] = useState<UploadedImage | null>(null);
-  const [backCccd, setBackCccd] = useState<UploadedImage | null>(null);
+  const step1Identity = getStep1Identity();
+
+  const cachedImages = getCccdCachedImages();
+
+  const [frontCccd, setFrontCccd] = useState<UploadedImage | null>(
+    cachedImages.front,
+  );
+
+  const [backCccd, setBackCccd] = useState<UploadedImage | null>(
+    cachedImages.back,
+  );
 
   const [uploadError, setUploadError] = useState("");
+  const [ocrStatus, setOcrStatus] = useState<OcrStatus | null>(null);
+
+  const [isCheckingOcr, setIsCheckingOcr] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [result, setResult] = useState<CustomerIdentifyResponse | null>(null);
@@ -75,10 +128,10 @@ function CustomerIdentifyScreen() {
   const form = useForm<CustomerIdentifyFormValues>({
     resolver: zodResolver(customerIdentifySchema),
     defaultValues: {
-      fullName: "",
-      dateOfBirth: "",
-      phoneNumber: "",
-      identityNumber: "",
+      fullName: step1Identity?.fullName || "",
+      dateOfBirth: step1Identity?.dateOfBirth || "",
+      phoneNumber: step1Identity?.phoneNumber || "",
+      identityNumber: step1Identity?.identityNumber || "",
     },
   });
 
@@ -94,6 +147,118 @@ function CustomerIdentifyScreen() {
     return "";
   };
 
+  const saveCurrentStep1FormToSession = (customerId?: string) => {
+    const currentValues = form.getValues();
+    const oldStep1Identity = getStep1Identity();
+
+    saveStep1Identity({
+      ...oldStep1Identity,
+      fullName: currentValues.fullName,
+      dateOfBirth: currentValues.dateOfBirth,
+      phoneNumber: currentValues.phoneNumber,
+      identityNumber: currentValues.identityNumber,
+      customerId: customerId || oldStep1Identity?.customerId,
+    });
+  };
+
+  const applyOcrDataToForm = (ocrData: CustomerOcrData) => {
+    const formattedDateOfBirth = convertDdMmYyyyToIsoDate(ocrData.dateOfBirth);
+
+    form.setValue("fullName", ocrData.fullName || "", {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+
+    form.setValue("dateOfBirth", formattedDateOfBirth, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+
+    form.setValue("identityNumber", ocrData.identityNumber || "", {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+
+    const currentPhoneNumber = form.getValues("phoneNumber");
+
+    sessionStorage.setItem(
+      CUSTOMER_IDENTIFY_OCR_KEY,
+      JSON.stringify({
+        ...ocrData,
+        dateOfBirthFormatted: formattedDateOfBirth,
+        phoneNumber: currentPhoneNumber,
+        savedAt: new Date().toISOString(),
+      }),
+    );
+
+    const oldStep1Identity = getStep1Identity();
+
+    saveStep1Identity({
+      ...oldStep1Identity,
+      fullName: ocrData.fullName || oldStep1Identity?.fullName || "",
+      dateOfBirth: formattedDateOfBirth || oldStep1Identity?.dateOfBirth || "",
+      phoneNumber: currentPhoneNumber || oldStep1Identity?.phoneNumber || "",
+      identityNumber:
+        ocrData.identityNumber || oldStep1Identity?.identityNumber || "",
+      documentType: ocrData.documentType || oldStep1Identity?.documentType,
+      sex: ocrData.sex || oldStep1Identity?.sex,
+      nationality: ocrData.nationality || oldStep1Identity?.nationality,
+      issueDate: ocrData.issueDate || oldStep1Identity?.issueDate,
+      expiryDate: ocrData.expiryDate || oldStep1Identity?.expiryDate,
+    });
+  };
+
+  const handleCheckOcr = async () => {
+    if (!frontCccd || !backCccd) {
+      setOcrStatus({
+        type: "error",
+        message:
+          "Vui lòng upload đầy đủ CCCD mặt trước và mặt sau trước khi kiểm tra OCR",
+      });
+      return;
+    }
+
+    setIsCheckingOcr(true);
+    setUploadError("");
+    setOcrStatus(null);
+
+    try {
+      const response = await customerIdentifyApi.ocrCccd({
+        cccdFrontImage: frontCccd.file,
+        cccdBackImage: backCccd.file,
+      });
+
+      if (!response.success || !response.data) {
+        setOcrStatus({
+          type: "error",
+          message:
+            response.message || "OCR thất bại. Vui lòng kiểm tra lại ảnh CCCD",
+        });
+        return;
+      }
+
+      applyOcrDataToForm(response.data);
+
+      setOcrStatus({
+        type: "success",
+        message:
+          response.message === "OCR extraction completed"
+            ? "OCR thành công. Thông tin CCCD đã được tự động điền vào form."
+            : response.message ||
+              "OCR thành công. Thông tin đã được tự động điền vào form.",
+      });
+    } catch (error) {
+      console.error("OCR error:", error);
+
+      setOcrStatus({
+        type: "error",
+        message: "OCR thất bại. Vui lòng kiểm tra lại ảnh hoặc thử lại sau.",
+      });
+    } finally {
+      setIsCheckingOcr(false);
+    }
+  };
+
   const handleUploadImage = (
     event: React.ChangeEvent<HTMLInputElement>,
     side: UploadSide,
@@ -106,94 +271,101 @@ function CustomerIdentifyScreen() {
 
     if (errorMessage) {
       setUploadError(errorMessage);
+      setOcrStatus({
+        type: "error",
+        message: errorMessage,
+      });
       event.target.value = "";
       return;
     }
 
     setUploadError("");
+    setOcrStatus(null);
 
     const previewUrl = URL.createObjectURL(file);
 
-    if (side === "front") {
-      if (frontCccd?.previewUrl) {
-        URL.revokeObjectURL(frontCccd.previewUrl);
-      }
+    const nextImage: UploadedImage = {
+      file,
+      previewUrl,
+    };
 
-      setFrontCccd({
-        file,
-        previewUrl,
-      });
+    if (side === "front") {
+      clearCccdCachedImage("front");
+      setCccdCachedImage("front", nextImage);
+      setFrontCccd(nextImage);
     }
 
     if (side === "back") {
-      if (backCccd?.previewUrl) {
-        URL.revokeObjectURL(backCccd.previewUrl);
-      }
-
-      setBackCccd({
-        file,
-        previewUrl,
-      });
+      clearCccdCachedImage("back");
+      setCccdCachedImage("back", nextImage);
+      setBackCccd(nextImage);
     }
 
     event.target.value = "";
   };
 
   const handleRemoveImage = (side: UploadSide) => {
-    if (side === "front") {
-      if (frontCccd?.previewUrl) {
-        URL.revokeObjectURL(frontCccd.previewUrl);
-      }
+    setOcrStatus(null);
 
+    if (side === "front") {
+      clearCccdCachedImage("front");
       setFrontCccd(null);
     }
 
     if (side === "back") {
-      if (backCccd?.previewUrl) {
-        URL.revokeObjectURL(backCccd.previewUrl);
-      }
-
+      clearCccdCachedImage("back");
       setBackCccd(null);
     }
   };
 
   const handleClearInformation = () => {
-    form.reset();
+    form.reset({
+      fullName: "",
+      dateOfBirth: "",
+      phoneNumber: "",
+      identityNumber: "",
+    });
 
-    if (frontCccd?.previewUrl) {
-      URL.revokeObjectURL(frontCccd.previewUrl);
-    }
-
-    if (backCccd?.previewUrl) {
-      URL.revokeObjectURL(backCccd.previewUrl);
-    }
+    clearAllCccdCachedImages();
 
     setFrontCccd(null);
     setBackCccd(null);
     setUploadError("");
+    setOcrStatus(null);
     setResult(null);
-  };
 
-  const saveCurrentStep1FormToSession = (customerId?: string) => {
-    const currentValues = form.getValues();
+    sessionStorage.removeItem(CUSTOMER_IDENTIFY_OCR_KEY);
 
     saveStep1Identity({
-      fullName: currentValues.fullName,
-      dateOfBirth: currentValues.dateOfBirth,
-      phoneNumber: currentValues.phoneNumber,
-      identityNumber: currentValues.identityNumber,
-      customerId,
+      fullName: "",
+      dateOfBirth: "",
+      phoneNumber: "",
+      identityNumber: "",
+    });
+  };
+
+  const handleSaveTemporaryData = () => {
+    saveCurrentStep1FormToSession();
+
+    setOcrStatus({
+      type: "success",
+      message: "Đã lưu tạm thông tin định danh trong phiên làm việc",
     });
   };
 
   const handleSubmit = async (values: CustomerIdentifyFormValues) => {
     if (!frontCccd || !backCccd) {
       setUploadError("Vui lòng upload đầy đủ CCCD mặt trước và mặt sau");
+      setOcrStatus({
+        type: "error",
+        message: "Vui lòng upload đầy đủ CCCD mặt trước và mặt sau",
+      });
       return;
     }
 
     setIsSubmitting(true);
     setUploadError("");
+    setOcrStatus(null);
     setResult(null);
 
     try {
@@ -208,7 +380,10 @@ function CustomerIdentifyScreen() {
 
       setResult(response);
 
+      const oldStep1Identity = getStep1Identity();
+
       saveStep1Identity({
+        ...oldStep1Identity,
         fullName: values.fullName,
         dateOfBirth: values.dateOfBirth,
         phoneNumber: values.phoneNumber,
@@ -221,21 +396,20 @@ function CustomerIdentifyScreen() {
       });
     } catch (error) {
       console.error(error);
+
       setUploadError("Có lỗi xảy ra khi kiểm tra khách hàng");
+      setOcrStatus({
+        type: "error",
+        message: "Có lỗi xảy ra khi kiểm tra khách hàng",
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleSaveTemporaryData = () => {
-    saveCurrentStep1FormToSession();
-  };
-
   return (
     <div className="min-h-screen bg-[#f6faf5]">
       <main className="min-h-screen">
-      
-
         <section className="px-8 py-6">
           <CustomerIdentifyBreadcrumb currentStep={CURRENT_STEP} />
 
@@ -259,8 +433,8 @@ function CustomerIdentifyScreen() {
                       </h1>
 
                       <p className="mt-1 text-sm text-[#6b7280]">
-                        Upload CCCD, kiểm tra thông tin OCR và xác nhận thông tin
-                        định danh khách hàng.
+                        Upload CCCD, kiểm tra OCR và xác nhận thông tin định
+                        danh khách hàng.
                       </p>
                     </div>
                   </div>
@@ -368,7 +542,20 @@ function CustomerIdentifyScreen() {
                             <Input
                               placeholder="Nhập số điện thoại"
                               className="h-11"
-                              {...field}
+                              value={field.value || ""}
+                              onChange={(event) => {
+                                const onlyNumber = event.target.value.replace(
+                                  /\D/g,
+                                  "",
+                                );
+
+                                field.onChange(onlyNumber);
+                              }}
+                              onBlur={field.onBlur}
+                              name={field.name}
+                              ref={field.ref}
+                              inputMode="numeric"
+                              maxLength={11}
                             />
                           </FormControl>
                           <FormMessage className="text-red-500" />
@@ -386,7 +573,20 @@ function CustomerIdentifyScreen() {
                             <Input
                               placeholder="Nhập số giấy tờ"
                               className="h-11"
-                              {...field}
+                              value={field.value || ""}
+                              onChange={(event) => {
+                                const onlyNumber = event.target.value.replace(
+                                  /\D/g,
+                                  "",
+                                );
+
+                                field.onChange(onlyNumber);
+                              }}
+                              onBlur={field.onBlur}
+                              name={field.name}
+                              ref={field.ref}
+                              inputMode="numeric"
+                              maxLength={12}
                             />
                           </FormControl>
                           <FormMessage className="text-red-500" />
@@ -396,20 +596,26 @@ function CustomerIdentifyScreen() {
                   </div>
 
                   <div className="mt-8 border-t pt-6">
-                    <div className="mb-5 flex items-start gap-4">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#e9f8ee]">
-                        <Gallery size={22} color="#009b3a" variant="Outline" />
-                      </div>
+                    <div className="mb-5 flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-4">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#e9f8ee]">
+                          <Gallery
+                            size={22}
+                            color="#009b3a"
+                            variant="Outline"
+                          />
+                        </div>
 
-                      <div>
-                        <h2 className="text-lg font-bold text-[#111827]">
-                          Ảnh giấy tờ định danh CCCD
-                        </h2>
+                        <div>
+                          <h2 className="text-lg font-bold text-[#111827]">
+                            Ảnh giấy tờ định danh CCCD
+                          </h2>
 
-                        <p className="mt-1 text-sm text-[#6b7280]">
-                          Upload ảnh CCCD mặt trước và mặt sau. Dữ liệu OCR sẽ
-                          được fill vào các textbox phía trên.
-                        </p>
+                          <p className="mt-1 text-sm text-[#6b7280]">
+                            Upload ảnh CCCD mặt trước và mặt sau, sau đó bấm
+                            Kiểm tra OCR để tự động điền thông tin.
+                          </p>
+                        </div>
                       </div>
                     </div>
 
@@ -432,8 +638,36 @@ function CustomerIdentifyScreen() {
                         onRemove={handleRemoveImage}
                       />
                     </div>
+                    <div className="mt-4 flex items-center justify-end gap-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleCheckOcr}
+                        disabled={isCheckingOcr}
+                        className="shrink-0 bg-green-600 border-[#009b3a] text-[white] hover:bg-[#ecfdf3] hover:text-[#009b3a]"
+                      >
+                        <Refresh
+                          size={18}
+                          color="currentColor"
+                          variant="Outline"
+                          className="mr-2"
+                        />
+                        {isCheckingOcr ? "Đang OCR..." : "Kiểm tra OCR"}
+                      </Button>
+                    </div>
+                    {ocrStatus && (
+                      <div
+                        className={
+                          ocrStatus.type === "success"
+                            ? "mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700"
+                            : "mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600"
+                        }
+                      >
+                        {ocrStatus.message}
+                      </div>
+                    )}
 
-                    {uploadError && (
+                    {uploadError && !ocrStatus && (
                       <p className="mt-4 text-sm font-medium text-red-500">
                         {uploadError}
                       </p>
@@ -457,22 +691,22 @@ function CustomerIdentifyScreen() {
                     </Button>
 
                     <div className="flex items-center gap-4">
-                      <Button
+                      {/* <Button
                         type="button"
                         variant="outline"
                         onClick={handleSaveTemporaryData}
                         className="min-w-[120px]"
                       >
                         Lưu tạm
-                      </Button>
+                      </Button> */}
 
-                      <Button
+                      {/* <Button
                         type="button"
                         variant="outline"
                         className="min-w-[96px]"
                       >
                         Hủy
-                      </Button>
+                      </Button> */}
 
                       <Button
                         type="submit"

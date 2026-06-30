@@ -1,9 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 
-import { Calculator, Car, DocumentText, TickCircle } from "iconsax-react";
+import {
+  Calculator,
+  Car,
+  DocumentText,
+  TickCircle,
+} from "iconsax-react";
 
 import AppHeader from "@/components/shared/AppHeader";
 
@@ -12,9 +17,14 @@ import { Form } from "@/components/ui/form";
 import { CustomerIdentifyBreadcrumb } from "@/features/customer-identify/components/CustomerIdentifyBreadcrumb";
 import { LoanOnboardingStepper } from "@/features/customer-identify/components/LoanOnboardingStepper";
 
-import { getStep1Identity } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
+import {
+  getStep1Identity,
+  getStep2PreliminaryInfo,
+  saveStep2PreliminaryInfo,
+} from "@/features/loan-onboarding/storage/loan-onboarding.storage";
 
 import { preliminaryInfoApi } from "@/features/preliminary-info/api/preliminary-info.api";
+import { assetValuationApi } from "@/features/preliminary-info/api/asset-valuation.api";
 
 import { AppraisalSummary } from "@/features/preliminary-info/components/AppraisalSummary";
 import { BottomActions } from "@/features/preliminary-info/components/BottomActions";
@@ -36,6 +46,12 @@ import type {
   LoanPackageId,
   PreliminaryInfoPayload,
 } from "@/features/preliminary-info/types/preliminary-info.type";
+
+import type {
+  AssetValuationPayload,
+  AssetValuationResponse,
+  AssetValuationResult,
+} from "@/features/preliminary-info/types/asset-valuation.type";
 
 export const Route = createFileRoute("/loan/preliminary-info")({
   component: PreliminaryInfoScreen,
@@ -59,7 +75,7 @@ const loanPackages: LoanPackage[] = [
     interestRate: 2.5,
     ltv: 70,
     maxLoanAmount: 35_000_000,
-    terms: [6, 12, 18],
+    terms: [12, 36, 48, 72],
   },
   {
     id: "promotion",
@@ -68,7 +84,7 @@ const loanPackages: LoanPackage[] = [
     interestRate: 2,
     ltv: 75,
     maxLoanAmount: 37_500_000,
-    terms: [12, 24, 36],
+    terms: [12, 36, 48, 72],
   },
   {
     id: "vip",
@@ -77,50 +93,119 @@ const loanPackages: LoanPackage[] = [
     interestRate: 1.8,
     ltv: 80,
     maxLoanAmount: 40_000_000,
-    terms: [12, 24, 36, 48],
+    terms: [12, 36, 48, 72],
     disabled: true,
   },
 ];
+
+function mapOcrSexToGender(sex?: string) {
+  if (!sex) return "";
+
+  const normalizedSex = sex.trim().toLowerCase();
+
+  if (
+    normalizedSex === "nam" ||
+    normalizedSex === "male" ||
+    normalizedSex === "m"
+  ) {
+    return "male";
+  }
+
+  if (
+    normalizedSex === "nữ" ||
+    normalizedSex === "nu" ||
+    normalizedSex === "female" ||
+    normalizedSex === "f"
+  ) {
+    return "female";
+  }
+
+  return "other";
+}
 
 function PreliminaryInfoScreen() {
   const navigate = useNavigate();
 
   const step1Identity = getStep1Identity();
+  const step2Session = getStep2PreliminaryInfo();
+
+  const initialGender =
+    step2Session?.gender || mapOcrSexToGender(step1Identity?.sex);
 
   const [selectedDeductionIds, setSelectedDeductionIds] = useState<string[]>(
-    [],
+    step2Session?.selectedDeductionIds || [],
   );
 
-  const [selectedPackageId, setSelectedPackageId] =
-    useState<LoanPackageId>("promotion");
+  const [selectedPackageId, setSelectedPackageId] = useState<LoanPackageId>(
+    step2Session?.selectedPackageId || "promotion",
+  );
 
-  const [selectedTerm, setSelectedTerm] = useState("12");
+  const [selectedTerm, setSelectedTerm] = useState(
+    step2Session?.selectedTerm || step2Session?.term || "12",
+  );
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [isValuationLoading, setIsValuationLoading] = useState(false);
+  const [valuationError, setValuationError] = useState("");
+  const [valuationResult, setValuationResult] =
+    useState<AssetValuationResponse | null>(null);
+
+  const valuationRequestSignatureRef = useRef("");
+  const valuationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const applicationCode =
+    sessionStorage.getItem("applicationCode") ||
+    sessionStorage.getItem("loanApplicationCode") ||
+    "APP-DEMO-001";
 
   const form = useForm<PreliminaryInfoFormValues>({
     resolver: zodResolver(preliminaryInfoSchema),
     defaultValues: {
-      fullName: step1Identity?.fullName || "",
-      identityNumber: step1Identity?.identityNumber || "",
-      phoneNumber: step1Identity?.phoneNumber || "",
-      dateOfBirth: step1Identity?.dateOfBirth || "",
+      fullName: step2Session?.fullName || step1Identity?.fullName || "",
+      identityNumber:
+        step2Session?.identityNumber || step1Identity?.identityNumber || "",
+      phoneNumber:
+        step2Session?.phoneNumber || step1Identity?.phoneNumber || "",
+      dateOfBirth:
+        step2Session?.dateOfBirth || step1Identity?.dateOfBirth || "",
 
-      gender: "",
-      job: "",
-      monthlyIncome: "",
-      loanPurpose: "",
-      desiredLoanAmount: "",
-      term: "12",
+      gender: initialGender,
+      job: step2Session?.job || "",
+      monthlyIncome: step2Session?.monthlyIncome || "",
+      loanPurpose: step2Session?.loanPurpose || "",
+      desiredLoanAmount: step2Session?.desiredLoanAmount || "",
+      term: step2Session?.term || "12",
 
-      assetType: "motorbike",
-      plateNumber: "",
-      brand: "",
-      model: "",
-      version: "",
-      manufactureYear: "",
-      color: "",
+      assetType: step2Session?.assetType || "motorbike",
+      plateNumber: step2Session?.plateNumber || "",
+      brand: step2Session?.brand || "",
+      model: step2Session?.model || "",
+      version: step2Session?.version || "",
+      manufactureYear: step2Session?.manufactureYear || "",
+      color: step2Session?.color || "",
     },
+  });
+
+  const [
+    watchedAssetType,
+    watchedPlateNumber,
+    watchedBrand,
+    watchedModel,
+    watchedVersion,
+    watchedManufactureYear,
+    watchedColor,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      "assetType",
+      "plateNumber",
+      "brand",
+      "model",
+      "version",
+      "manufactureYear",
+      "color",
+    ],
   });
 
   const marketValue = 50_000_000;
@@ -165,25 +250,254 @@ function PreliminaryInfoScreen() {
     });
   };
 
+  const handleSelectTerm = (term: string) => {
+    setSelectedTerm(term);
+
+    form.setValue("term", term, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+  };
+
   const buildPayload = (
     values: PreliminaryInfoFormValues,
   ): PreliminaryInfoPayload => {
     return {
       ...values,
       selectedDeductionIds,
-      totalDeductionPercent,
-      marketValue,
-      valueAfterDeduction,
+      totalDeductionPercent: getValuationDeductionRate(),
+      marketValue: getValuationMarketValue(),
+      valueAfterDeduction: getValuationValueAfterDeduction(),
       selectedPackageId,
       selectedTerm,
       monthlyPayment,
-      maxLoanByAppraisal,
+      maxLoanByAppraisal: getValuationMaxLoanAmount(),
     };
   };
+
+  const saveCurrentStep2ToSession = (values: PreliminaryInfoFormValues) => {
+    saveStep2PreliminaryInfo({
+      ...values,
+      selectedDeductionIds,
+      selectedPackageId,
+      selectedTerm,
+    });
+  };
+
+  const buildDeductionItems = () => {
+    return deductions
+      .filter((item) => selectedDeductionIds.includes(item.id))
+      .map((item) => ({
+        type: item.id,
+        rate: item.percent,
+      }));
+  };
+
+  const getMissingAssetFields = () => {
+    const values = form.getValues();
+
+    const missingFields: string[] = [];
+
+    if (!values.assetType) missingFields.push("Loại tài sản");
+    if (!values.plateNumber) missingFields.push("Biển số xe");
+    if (!values.brand) missingFields.push("Hãng xe");
+    if (!values.model) missingFields.push("Dòng xe");
+    if (!values.version) missingFields.push("Phiên bản xe");
+    if (!values.manufactureYear) missingFields.push("Năm sản xuất");
+    if (!values.color) missingFields.push("Màu xe");
+
+    return missingFields;
+  };
+
+  const isAssetValuationReady = () => {
+    return getMissingAssetFields().length === 0;
+  };
+
+  const buildAssetValuationPayload = (): AssetValuationPayload => {
+    const values = form.getValues();
+
+    return {
+      assetSnapshot: {
+        assetType: values.assetType || "",
+        licensePlate: values.plateNumber || "",
+        brand: values.brand || "",
+        model: values.model || "",
+        vehicleVariant: values.version || "",
+        manufactureYear: Number(values.manufactureYear || 0),
+        vehicleColor: values.color || "",
+      },
+      deductionItems: buildDeductionItems(),
+    };
+  };
+
+  const buildAssetValuationSignature = () => {
+    const payload = buildAssetValuationPayload();
+
+    return JSON.stringify({
+      applicationCode,
+      assetSnapshot: payload.assetSnapshot,
+      deductionItems: payload.deductionItems
+        .slice()
+        .sort((a, b) => a.type.localeCompare(b.type)),
+    });
+  };
+
+  const getValuationData = (): AssetValuationResult | null => {
+    if (!valuationResult) {
+      return null;
+    }
+
+    return valuationResult.data || valuationResult;
+  };
+
+  const getValuationMarketValue = () => {
+    const data = getValuationData();
+
+    return data?.marketValue || data?.estimatedValue || marketValue;
+  };
+
+  const getValuationDeductionRate = () => {
+    const data = getValuationData();
+
+    return data?.totalDeductionRate || totalDeductionPercent;
+  };
+
+  const getValuationValueAfterDeduction = () => {
+    const data = getValuationData();
+
+    return data?.valueAfterDeduction || data?.finalValue || valueAfterDeduction;
+  };
+
+  const getValuationMaxLoanAmount = () => {
+    const data = getValuationData();
+
+    return data?.maxLoanAmount || maxLoanByAppraisal;
+  };
+
+  const getValuationLtv = () => {
+    const data = getValuationData();
+
+    return data?.ltvRate || data?.loanToValue || selectedPackage.ltv;
+  };
+
+  const handleCalculateAssetValuation = async () => {
+    const missingFields = getMissingAssetFields();
+
+    if (missingFields.length > 0) {
+      console.log("Auto valuation chưa chạy vì thiếu:", missingFields);
+
+      setValuationResult(null);
+      setValuationError("");
+      valuationRequestSignatureRef.current = "";
+      return;
+    }
+
+    if (!applicationCode) {
+      setValuationResult(null);
+      setValuationError("Không tìm thấy mã hồ sơ vay để định giá tài sản.");
+      return;
+    }
+
+    const isValidAssetForm = await form.trigger([
+      "assetType",
+      "plateNumber",
+      "brand",
+      "model",
+      "version",
+      "manufactureYear",
+      "color",
+    ]);
+
+    if (!isValidAssetForm) {
+      setValuationResult(null);
+      setValuationError(
+        "Vui lòng nhập đúng thông tin tài sản trước khi định giá.",
+      );
+      return;
+    }
+
+    const signature = buildAssetValuationSignature();
+
+    if (signature === valuationRequestSignatureRef.current) {
+      console.log("Bỏ qua call API định giá vì payload không đổi");
+      return;
+    }
+
+    valuationRequestSignatureRef.current = signature;
+
+    setIsValuationLoading(true);
+    setValuationError("");
+
+    try {
+      const payload = buildAssetValuationPayload();
+
+      console.log("Đang gọi API định giá:", {
+        applicationCode,
+        payload,
+      });
+
+      const response = await assetValuationApi.preview(applicationCode, payload);
+
+      console.log("Kết quả API định giá:", response);
+
+      setValuationResult(response);
+      setValuationError("");
+    } catch (error) {
+      console.error("Auto asset valuation error:", error);
+
+      setValuationResult(null);
+      setValuationError(
+        "Không thể tự động tính định giá sơ bộ. Vui lòng kiểm tra lại thông tin tài sản.",
+      );
+
+      valuationRequestSignatureRef.current = "";
+    } finally {
+      setIsValuationLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (valuationTimerRef.current) {
+      clearTimeout(valuationTimerRef.current);
+    }
+
+    const missingFields = getMissingAssetFields();
+
+    if (missingFields.length > 0) {
+      console.log("Auto valuation chưa chạy vì thiếu:", missingFields);
+
+      setValuationResult(null);
+      setValuationError("");
+      valuationRequestSignatureRef.current = "";
+      return;
+    }
+
+    valuationTimerRef.current = setTimeout(() => {
+      void handleCalculateAssetValuation();
+    }, 700);
+
+    return () => {
+      if (valuationTimerRef.current) {
+        clearTimeout(valuationTimerRef.current);
+      }
+    };
+  }, [
+    watchedAssetType,
+    watchedPlateNumber,
+    watchedBrand,
+    watchedModel,
+    watchedVersion,
+    watchedManufactureYear,
+    watchedColor,
+    selectedDeductionIds.join("|"),
+    applicationCode,
+  ]);
 
   const handleSaveDraft = async () => {
     const values = form.getValues();
     const payload = buildPayload(values);
+
+    saveCurrentStep2ToSession(values);
 
     try {
       await preliminaryInfoApi.saveDraft(payload);
@@ -198,6 +512,8 @@ function PreliminaryInfoScreen() {
 
     try {
       const payload = buildPayload(values);
+
+      saveCurrentStep2ToSession(values);
 
       await preliminaryInfoApi.submit(payload);
 
@@ -224,6 +540,8 @@ function PreliminaryInfoScreen() {
   return (
     <div className="min-h-screen bg-[#f6faf5]">
       <main className="min-h-screen">
+        <AppHeader />
+
         <section className="px-8 py-6">
           <CustomerIdentifyBreadcrumb currentStep={CURRENT_STEP} />
 
@@ -244,7 +562,7 @@ function PreliminaryInfoScreen() {
                 iconClassName="bg-[#e9f8ee]"
                 rightContent={
                   <span className="text-sm text-[#4b5563]">
-                    Đã tự điền từ bước 1
+                    Đã tự điền từ OCR bước 1
                   </span>
                 }
               >
@@ -264,6 +582,9 @@ function PreliminaryInfoScreen() {
                     label="Số CCCD"
                     placeholder="Nhập số CCCD"
                     className="bg-[#f8fbf8]"
+                    onlyNumber
+                    inputMode="numeric"
+                    maxLength={12}
                   />
                 </div>
 
@@ -278,6 +599,7 @@ function PreliminaryInfoScreen() {
                     inputMode="numeric"
                     maxLength={11}
                   />
+
                   <DateOfBirthField form={form} />
 
                   <SelectField
@@ -347,6 +669,7 @@ function PreliminaryInfoScreen() {
                     name="term"
                     label="Kỳ hạn (tháng)"
                     placeholder="Chọn kỳ hạn"
+                    onAfterChange={handleSelectTerm}
                     options={[
                       { label: "12 tháng", value: "12" },
                       { label: "36 tháng", value: "36" },
@@ -473,12 +796,25 @@ function PreliminaryInfoScreen() {
                 iconClassName="bg-[#e9f8ee]"
               >
                 <AppraisalSummary
-                  marketValue={marketValue}
-                  totalDeductionPercent={totalDeductionPercent}
-                  valueAfterDeduction={valueAfterDeduction}
-                  maxLoanByAppraisal={maxLoanByAppraisal}
-                  ltv={selectedPackage.ltv}
+                  marketValue={getValuationMarketValue()}
+                  totalDeductionPercent={getValuationDeductionRate()}
+                  valueAfterDeduction={getValuationValueAfterDeduction()}
+                  maxLoanByAppraisal={getValuationMaxLoanAmount()}
+                  ltv={getValuationLtv()}
+                  isLoading={isValuationLoading}
                 />
+
+                {valuationError && (
+                  <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+                    {valuationError}
+                  </div>
+                )}
+
+                {valuationResult && !valuationError && (
+                  <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+                    Đã tự động tính định giá sơ bộ thành công.
+                  </div>
+                )}
               </SectionCard>
 
               <SectionCard
@@ -494,7 +830,7 @@ function PreliminaryInfoScreen() {
                   selectedTerm={selectedTerm}
                   monthlyPayment={monthlyPayment}
                   onSelectPackage={setSelectedPackageId}
-                  onSelectTerm={setSelectedTerm}
+                  onSelectTerm={handleSelectTerm}
                 />
               </SectionCard>
 

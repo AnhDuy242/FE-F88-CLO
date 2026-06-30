@@ -4,6 +4,7 @@ type AppraisalSummaryProps = {
   valueAfterDeduction: number;
   maxLoanByAppraisal: number;
   ltv: number;
+  isLoading?: boolean;
 };
 
 export function AppraisalSummary({
@@ -12,12 +13,31 @@ export function AppraisalSummary({
   valueAfterDeduction,
   maxLoanByAppraisal,
   ltv,
+  isLoading,
 }: AppraisalSummaryProps) {
   return (
     <>
+      <div className="mb-5 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-[#111827]">
+            Kết quả định giá sơ bộ
+          </p>
+
+          <p className="mt-1 text-sm text-[#64748b]">
+            Hệ thống sẽ tự động tính khi nhập đủ thông tin tài sản.
+          </p>
+        </div>
+
+        {isLoading && (
+          <div className="rounded-full bg-[#e9f8ee] px-4 py-2 text-sm font-semibold text-[#009b3a]">
+            Đang tự động tính...
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
         <SummaryBox
-          title="Giá thị trường"
+          title="Giá trị thị trường"
           value={formatCurrency(marketValue)}
           className="bg-[#f0faf0]"
         />
@@ -78,11 +98,12 @@ function SummaryBox({
   return (
     <div className={`rounded-xl p-5 ${className}`}>
       <p className="text-sm text-[#64748b]">{title}</p>
+
       <p className={`mt-2 text-xl font-bold ${valueClassName}`}>{value}</p>
     </div>
   );
 }
 
 function formatCurrency(value: number) {
-  return new Intl.NumberFormat("vi-VN").format(Math.round(value)) + " đ";
+  return new Intl.NumberFormat("vi-VN").format(Math.round(value || 0)) + " đ";
 }

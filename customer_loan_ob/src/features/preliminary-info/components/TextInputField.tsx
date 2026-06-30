@@ -1,4 +1,5 @@
 import type { FieldPath, UseFormReturn } from "react-hook-form";
+import type { InputHTMLAttributes } from "react";
 
 import { Input } from "@/components/ui/input";
 
@@ -19,7 +20,7 @@ type TextInputFieldProps = {
   placeholder?: string;
   required?: boolean;
   className?: string;
-  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
   maxLength?: number;
   onlyNumber?: boolean;
   uppercase?: boolean;
@@ -52,7 +53,7 @@ export function TextInputField({
               placeholder={placeholder}
               inputMode={inputMode}
               maxLength={maxLength}
-              className={`h-12 rounded-xl ${className}`}
+              className={`h-12 rounded-xl border border-[#dbe5dd] ${className}`}
               value={(field.value as string) || ""}
               onChange={(event) => {
                 let value = event.target.value;

@@ -1,11 +1,20 @@
 export const API_ENDPOINTS = {
-  customerIdentify: {
+   customerIdentify: {
     checkCustomer: "/customer-identify/check",
-    ocrCccd: "/customer-identify/ocr-cccd",
+    ocrExtract: "/customers/ocr/extract",
   },
 
-  preliminaryInfo: {
+
+ preliminaryInfo: {
     saveDraft: "/loan-applications/preliminary-info/draft",
     submit: "/loan-applications/preliminary-info",
+  },
+
+  assetValuation: {
+    preview: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/asset-valuations/preview`,
+
+    savePreview: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/valuation-preview`,
   },
 } as const;

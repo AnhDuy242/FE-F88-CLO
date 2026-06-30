@@ -32,6 +32,7 @@ type SelectFieldProps = {
   options: SelectOption[];
   required?: boolean;
   disabled?: boolean;
+  onAfterChange?: (value: string) => void;
 };
 
 export function SelectField({
@@ -42,6 +43,7 @@ export function SelectField({
   options,
   required,
   disabled,
+  onAfterChange,
 }: SelectFieldProps) {
   const [open, setOpen] = useState(false);
 
@@ -62,6 +64,7 @@ export function SelectField({
             disabled={disabled}
             onValueChange={(value) => {
               field.onChange(value);
+              onAfterChange?.(value);
               setOpen(false);
             }}
           >

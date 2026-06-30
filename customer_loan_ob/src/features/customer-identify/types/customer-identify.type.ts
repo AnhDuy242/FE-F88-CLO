@@ -1,3 +1,10 @@
+export type UploadSide = "front" | "back";
+
+export type UploadedImage = {
+  file: File;
+  previewUrl: string;
+};
+
 export type CustomerIdentifyPayload = {
   fullName: string;
   dateOfBirth: string;
@@ -8,17 +15,35 @@ export type CustomerIdentifyPayload = {
 };
 
 export type CustomerIdentifyResponse = {
-  customerId?: string;
-  customerName?: string;
   isExistingCustomer: boolean;
-  isBlacklisted?: boolean;
-  riskLevel?: "LOW" | "MEDIUM" | "HIGH";
+  isBlacklisted: boolean;
+  riskLevel?: string;
   message: string;
+  customerId?: string;
 };
 
-export type UploadedImage = {
-  file: File;
-  previewUrl: string;
+export type CustomerOcrPayload = {
+  cccdFrontImage: File;
+  cccdBackImage: File;
 };
 
-export type UploadSide = "front" | "back";
+export type CustomerOcrData = {
+  fullName: string;
+  dateOfBirth: string;
+  identityNumber: string;
+  documentType: string;
+  sex: string;
+  nationality: string;
+  expiryDate: string;
+  issueDate: string;
+  frontImageProcessed: boolean;
+  backImageProcessed: boolean;
+};
+
+export type CustomerOcrResponse = {
+  success: boolean;
+  message: string;
+  data: CustomerOcrData;
+  errorCode: string | null;
+  timestamp: string;
+};

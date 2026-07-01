@@ -11,6 +11,8 @@ export type ReferenceDataItem = {
   type?: string;
   rate?: number;
   percent?: number;
+  deductionRate?: number;
+  deductionPercent?: number;
 
   occupation?: string;
   occupationCode?: string;

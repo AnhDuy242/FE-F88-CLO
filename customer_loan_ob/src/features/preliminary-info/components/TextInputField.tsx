@@ -1,3 +1,4 @@
+import type { InputHTMLAttributes } from "react";
 import type { FieldPath, UseFormReturn } from "react-hook-form";
 
 import { Input } from "@/components/ui/input";
@@ -22,7 +23,7 @@ type TextInputFieldProps = {
   onlyNumber?: boolean;
   uppercase?: boolean;
   maxLength?: number;
-  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
   formatCurrencyVnd?: boolean;
 };
 
@@ -33,7 +34,7 @@ function formatCurrencyVnd(value: string) {
 
   const normalizedValue = digitsOnly.replace(/^0+(?=\d)/, "");
 
-  return `${normalizedValue.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} Đ`;
+  return normalizedValue.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
 export function TextInputField({

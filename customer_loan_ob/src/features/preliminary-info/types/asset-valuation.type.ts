@@ -1,12 +1,7 @@
 export type AssetTypeApiValue = "MOTORBIKE" | "CAR";
 
 export type AssetValuationMarketPriceParams = {
-  assetType: AssetTypeApiValue;
-  brand: string;
-  model: string;
   vehicleVariant: string;
-  manufactureYear: number;
-  vehicleColor: string;
 };
 
 export type AssetValuationMarketPriceData = {
@@ -20,11 +15,11 @@ export type AssetValuationMarketPriceData = {
 };
 
 export type AssetValuationMarketPriceResponse = {
-  success: boolean;
-  message: string;
-  data: AssetValuationMarketPriceData;
-  errorCode: string | null;
-  timestamp: string;
+  success?: boolean;
+  message?: string;
+  data?: AssetValuationMarketPriceData;
+  errorCode?: string | null;
+  timestamp?: string;
 };
 
 export type AssetValuationDeductionItem = {
@@ -40,28 +35,42 @@ export type AssetValuationPayload = {
     vehicleVariant: string;
     manufactureYear: number;
     vehicleColor: string;
+    marketValue: number;
   };
   deductionItems: AssetValuationDeductionItem[];
 };
 
+export type AppliedDeduction = {
+  type?: string;
+  rate?: number;
+  amount?: number;
+  name?: string;
+  description?: string;
+};
+
 export type AssetValuationPreviewData = {
   marketValue?: number;
-  currencyCode?: string;
   totalDeductionRate?: number;
   totalDeductionAmount?: number;
+  finalValue?: number;
+  ltvRatio?: number;
+  loanableValue?: number;
+  valuationState?: string;
+  appliedDeductions?: AppliedDeduction[];
+
+  currencyCode?: string;
+
+  estimatedValue?: number;
   valueAfterDeduction?: number;
   maxLoanAmount?: number;
   ltvRate?: number;
-
-  estimatedValue?: number;
-  finalValue?: number;
   loanToValue?: number;
 };
 
-export type AssetValuationResponse = AssetValuationPreviewData & {
+export type AssetValuationResponse = {
   success?: boolean;
   message?: string;
   data?: AssetValuationPreviewData;
   errorCode?: string | null;
   timestamp?: string;
-};
+} & AssetValuationPreviewData;

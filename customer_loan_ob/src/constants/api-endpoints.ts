@@ -1,11 +1,10 @@
 export const API_ENDPOINTS = {
-   customerIdentify: {
-    checkCustomer: "/customer-identify/check",
-    ocrExtract: "/customers/ocr/extract",
+  customerIdentify: {
+    checkCustomer: "/customers/check",
+    ocrCccd: "/customers/ocr/extract",
   },
 
-
- preliminaryInfo: {
+  preliminaryInfo: {
     saveDraft: "/loan-applications/preliminary-info/draft",
     submit: "/loan-applications/preliminary-info",
   },
@@ -17,19 +16,23 @@ export const API_ENDPOINTS = {
       `/loan-applications/${applicationCode}/asset-valuations`,
   },
 
+  loanProductRecommendation: {
+    recommend: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/loan-product-recommendations`,
+  },
+
   referenceData: {
     assetTypes: "/reference-data/asset-types",
     genders: "/reference-data/genders",
-    loanPurposes: "/reference-data/loan-purposes",
     occupations: "/reference-data/occupations",
-    manufactureYears: "/reference-data/manufacture-years",
+    loanPurposes: "/reference-data/loan-purposes",
 
     vehicleBrands: "/reference-data/vehicle-brands",
     vehicleModels: "/reference-data/vehicle-models",
     vehicleVersions: "/reference-data/vehicle-versions",
-    vehicleVariants: "/reference-data/vehicle-variants",
-    vehicleVariant: "/reference-data/vehicle-variant",
+    manufactureYears: "/reference-data/manufacture-years",
     vehicleColors: "/reference-data/vehicle-colors",
+    vehicleVariant: "/reference-data/vehicle-variant",
 
     valuationDeductionFactors:
       "/reference-data/valuation-deduction-factors",

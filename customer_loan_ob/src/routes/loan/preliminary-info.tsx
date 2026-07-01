@@ -19,6 +19,7 @@ import {
 import { preliminaryInfoApi } from "@/features/preliminary-info/api/preliminary-info.api";
 import { assetValuationApi } from "@/features/preliminary-info/api/asset-valuation.api";
 import { referenceDataApi } from "@/features/preliminary-info/api/reference-data.api";
+import { loanProductRecommendationApi } from "@/features/preliminary-info/api/loan-product-recommendation.api";
 
 import { AppraisalSummary } from "@/features/preliminary-info/components/AppraisalSummary";
 import { BottomActions } from "@/features/preliminary-info/components/BottomActions";
@@ -43,7 +44,6 @@ import type {
 
 import type {
   AssetTypeApiValue,
-  AssetValuationMarketPriceParams,
   AssetValuationMarketPriceResponse,
   AssetValuationPayload,
   AssetValuationPreviewData,
@@ -55,13 +55,16 @@ import type {
   ReferenceOption,
 } from "@/features/preliminary-info/types/reference-data.type";
 
+import type {
+  LoanProductRecommendationProduct,
+  LoanProductRecommendationResponse,
+} from "@/features/preliminary-info/types/loan-product-recommendation.type";
+
 export const Route = createFileRoute("/loan/preliminary-info")({
   component: PreliminaryInfoScreen,
 });
 
 const CURRENT_STEP = 2;
-
-type QueryParams = Record<string, string | number | boolean | undefined>;
 
 const loanPackages: LoanPackage[] = [
   {
@@ -103,6 +106,62 @@ function formatCurrencyVndForDefaultValue(value?: string) {
   if (!digitsOnly) return "";
 
   return `${digitsOnly.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} Đ`;
+}
+
+function getStringFromUnknownObject(source: unknown, keys: string[]) {
+  if (!source || typeof source !== "object") return "";
+
+  const record = source as Record<string, unknown>;
+
+  for (const key of keys) {
+    const value = record[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function getApplicationCodeFromStorage(step1: unknown, step2: unknown) {
+  const fromStepData =
+    getStringFromUnknownObject(step2, [
+      "applicationCode",
+      "loanApplicationCode",
+      "loanApplicationId",
+    ]) ||
+    getStringFromUnknownObject(step1, [
+      "applicationCode",
+      "loanApplicationCode",
+      "loanApplicationId",
+    ]);
+
+  if (fromStepData) return fromStepData;
+
+  const storageKeys = [
+    "applicationCode",
+    "loanApplicationCode",
+    "currentApplicationCode",
+  ];
+
+  for (const key of storageKeys) {
+    const value = sessionStorage.getItem(key);
+
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function getScoreGradeFromStorage(step1: unknown, step2: unknown) {
+  const fromStepData =
+    getStringFromUnknownObject(step2, ["scoreGrade", "creditScoreGrade"]) ||
+    getStringFromUnknownObject(step1, ["scoreGrade", "creditScoreGrade"]);
+
+  if (fromStepData) return fromStepData;
+
+  return sessionStorage.getItem("scoreGrade") || "A";
 }
 
 function mapOcrSexToGender(sex?: string) {
@@ -367,44 +426,15 @@ function mapDeductionItems(response: unknown): DeductionItem[] {
           item.code ??
           "",
       ),
-      percent: Number(item.rate ?? item.percent ?? 0),
+      percent: Number(
+        item.rate ??
+          item.percent ??
+          item.deductionRate ??
+          item.deductionPercent ??
+          0,
+      ),
     }))
     .filter((item) => item.id && item.label);
-}
-
-async function loadOptionsWithAttempts(
-  label: string,
-  request: (params?: QueryParams) => Promise<unknown>,
-  attempts: Array<QueryParams | undefined>,
-): Promise<ReferenceOption[]> {
-  for (const params of attempts) {
-    try {
-      const response = await request(params);
-      const options = mapReferenceOptions(response);
-
-      console.log(`${label} params:`, params);
-      console.log(`${label} response:`, response);
-      console.log(`${label} options:`, options);
-
-      if (options.length > 0) {
-        return options;
-      }
-    } catch (error) {
-      console.error(`${label} error with params:`, params, error);
-    }
-  }
-
-  return [];
-}
-
-async function loadDeductionItems(): Promise<DeductionItem[]> {
-  try {
-    const response = await referenceDataApi.getValuationDeductionFactors();
-    return mapDeductionItems(response);
-  } catch (error) {
-    console.error("Load deduction factors error:", error);
-    return [];
-  }
 }
 
 function PreliminaryInfoScreen() {
@@ -412,6 +442,19 @@ function PreliminaryInfoScreen() {
 
   const step1Identity = getStep1Identity();
   const step2Session = getStep2PreliminaryInfo();
+
+  const step1StorageData = step1Identity as Record<string, unknown> | null;
+  const step2StorageData = step2Session as Record<string, unknown> | null;
+
+  const applicationCode = getApplicationCodeFromStorage(
+    step1StorageData,
+    step2StorageData,
+  );
+
+  const scoreGrade = getScoreGradeFromStorage(
+    step1StorageData,
+    step2StorageData,
+  );
 
   const initialGender = normalizeGender(
     step2Session?.gender || mapOcrSexToGender(step1Identity?.sex),
@@ -428,6 +471,31 @@ function PreliminaryInfoScreen() {
   const [selectedTerm, setSelectedTerm] = useState(
     step2Session?.selectedTerm || step2Session?.term || "12",
   );
+
+  const [loanRecommendationResult, setLoanRecommendationResult] =
+    useState<LoanProductRecommendationResponse | null>(null);
+
+  const [recommendedProducts, setRecommendedProducts] = useState<
+    LoanProductRecommendationProduct[]
+  >([]);
+
+  const [selectedProductCode, setSelectedProductCode] = useState(
+    getStringFromUnknownObject(step2StorageData, [
+      "selectedProductCode",
+      "recommendedProductCode",
+    ]),
+  );
+
+  const [isLoanRecommendationLoading, setIsLoanRecommendationLoading] =
+    useState(false);
+
+  const [loanRecommendationError, setLoanRecommendationError] = useState("");
+
+  const loanRecommendationTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  const loanRecommendationSignatureRef = useRef("");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -465,6 +533,10 @@ function PreliminaryInfoScreen() {
   >([]);
 
   const [deductionOptions, setDeductionOptions] = useState<DeductionItem[]>([]);
+
+  const [deductionAmountsById, setDeductionAmountsById] = useState<
+    Record<string, number>
+  >({});
 
   const [resolvedVehicleVariant, setResolvedVehicleVariant] =
     useState<ReferenceOption | null>(null);
@@ -510,6 +582,9 @@ function PreliminaryInfoScreen() {
     watchedVersion,
     watchedManufactureYear,
     watchedColor,
+    watchedLoanPurpose,
+    watchedDesiredLoanAmount,
+    watchedTerm,
   ] = useWatch({
     control: form.control,
     name: [
@@ -519,81 +594,110 @@ function PreliminaryInfoScreen() {
       "version",
       "manufactureYear",
       "color",
+      "loanPurpose",
+      "desiredLoanAmount",
+      "term",
     ],
   });
 
   useEffect(() => {
     let isMounted = true;
 
-    const loadInitialReferenceData = async () => {
+    const loadAssetTypes = async () => {
       try {
-        const [
-          assetTypeOptionsResult,
-          genderOptionsResult,
-          occupationOptionsResult,
-          loanPurposeOptionsResult,
-          manufactureYearOptionsResult,
-          deductionOptionsResult,
-        ] = await Promise.all([
-          loadOptionsWithAttempts(
-            "Asset types",
-            referenceDataApi.getAssetTypes,
-            [undefined, { active: true }, { status: "ACTIVE" }],
-          ),
-          loadOptionsWithAttempts("Genders", referenceDataApi.getGenders, [
-            undefined,
-            { active: true },
-            { status: "ACTIVE" },
-          ]),
-          loadOptionsWithAttempts(
-            "Occupations",
-            referenceDataApi.getOccupations,
-            [
-              undefined,
-              { active: true },
-              { enabled: true },
-              { status: "ACTIVE" },
-              { type: "OCCUPATION" },
-              { category: "OCCUPATION" },
-              { group: "OCCUPATION" },
-            ],
-          ),
-          loadOptionsWithAttempts(
-            "Loan purposes",
-            referenceDataApi.getLoanPurposes,
-            [undefined, { active: true }, { status: "ACTIVE" }],
-          ),
-          loadOptionsWithAttempts(
-            "Manufacture years",
-            referenceDataApi.getManufactureYears,
-            [undefined, { active: true }, { status: "ACTIVE" }],
-          ),
-          loadDeductionItems(),
-        ]);
+        const response = await referenceDataApi.getAssetTypes();
+        const options = mapReferenceOptions(response);
 
         if (!isMounted) return;
 
-        setAssetTypeOptions(assetTypeOptionsResult);
-        setGenderOptions(genderOptionsResult);
-        setOccupationOptions(occupationOptionsResult);
-        setLoanPurposeOptions(loanPurposeOptionsResult);
-        setManufactureYearOptions(manufactureYearOptionsResult);
-        setDeductionOptions(deductionOptionsResult);
+        setAssetTypeOptions(options);
       } catch (error) {
-        console.error("Load initial reference data error:", error);
+        console.error("Load asset types error:", error);
 
         if (!isMounted) return;
 
         setAssetTypeOptions([]);
+      }
+    };
+
+    const loadGenders = async () => {
+      try {
+        const response = await referenceDataApi.getGenders();
+        const options = mapReferenceOptions(response);
+
+        if (!isMounted) return;
+
+        setGenderOptions(options);
+      } catch (error) {
+        console.error("Load genders error:", error);
+
+        if (!isMounted) return;
+
         setGenderOptions([]);
+      }
+    };
+
+    const loadOccupations = async () => {
+      try {
+        const response = await referenceDataApi.getOccupations();
+        const options = mapReferenceOptions(response);
+
+        console.log("Occupations response:", response);
+        console.log("Occupations options:", options);
+
+        if (!isMounted) return;
+
+        setOccupationOptions(options);
+      } catch (error) {
+        console.error("Load occupations error:", error);
+
+        if (!isMounted) return;
+
         setOccupationOptions([]);
+      }
+    };
+
+    const loadLoanPurposes = async () => {
+      try {
+        const response = await referenceDataApi.getLoanPurposes();
+        const options = mapReferenceOptions(response);
+
+        if (!isMounted) return;
+
+        setLoanPurposeOptions(options);
+      } catch (error) {
+        console.error("Load loan purposes error:", error);
+
+        if (!isMounted) return;
+
         setLoanPurposeOptions([]);
-        setManufactureYearOptions([]);
+      }
+    };
+
+    const loadDeductionFactors = async () => {
+      try {
+        const response = await referenceDataApi.getValuationDeductionFactors();
+        const deductionItems = mapDeductionItems(response);
+
+        if (!isMounted) return;
+
+        setDeductionOptions(deductionItems);
+      } catch (error) {
+        console.error("Load deduction factors error:", error);
+
+        if (!isMounted) return;
+
         setDeductionOptions([]);
       }
     };
 
-    void loadInitialReferenceData();
+    void Promise.allSettled([
+      loadAssetTypes(),
+      loadGenders(),
+      loadOccupations(),
+      loadLoanPurposes(),
+      loadDeductionFactors(),
+    ]);
 
     return () => {
       isMounted = false;
@@ -609,22 +713,21 @@ function PreliminaryInfoScreen() {
         return;
       }
 
-      const assetType = mapAssetTypeToApiValue(watchedAssetType);
+      try {
+        const response = await referenceDataApi.getVehicleBrands({
+          assetType: mapAssetTypeToApiValue(watchedAssetType),
+        });
 
-      const options = await loadOptionsWithAttempts(
-        "Vehicle brands",
-        referenceDataApi.getVehicleBrands,
-        [
-          { assetType, assetTypeCode: assetType },
-          { assetTypeCode: assetType },
-          { assetType },
-          undefined,
-        ],
-      );
+        if (!isMounted) return;
 
-      if (!isMounted) return;
+        setVehicleBrandOptions(mapReferenceOptions(response));
+      } catch (error) {
+        console.error("Load vehicle brands error:", error);
 
-      setVehicleBrandOptions(options);
+        if (!isMounted) return;
+
+        setVehicleBrandOptions([]);
+      }
     };
 
     void loadVehicleBrands();
@@ -643,40 +746,21 @@ function PreliminaryInfoScreen() {
         return;
       }
 
-      const assetType = mapAssetTypeToApiValue(watchedAssetType);
-      const brand = String(watchedBrand);
+      try {
+        const response = await referenceDataApi.getVehicleModels({
+          brandCode: String(watchedBrand),
+        });
 
-      const options = await loadOptionsWithAttempts(
-        "Vehicle models",
-        referenceDataApi.getVehicleModels,
-        [
-          {
-            assetType,
-            assetTypeCode: assetType,
-            brand,
-            brandCode: brand,
-          },
-          {
-            assetTypeCode: assetType,
-            brandCode: brand,
-          },
-          {
-            assetType,
-            brand,
-          },
-          {
-            brandCode: brand,
-          },
-          {
-            brand,
-          },
-          undefined,
-        ],
-      );
+        if (!isMounted) return;
 
-      if (!isMounted) return;
+        setVehicleModelOptions(mapReferenceOptions(response));
+      } catch (error) {
+        console.error("Load vehicle models error:", error);
 
-      setVehicleModelOptions(options);
+        if (!isMounted) return;
+
+        setVehicleModelOptions([]);
+      }
     };
 
     void loadVehicleModels();
@@ -684,7 +768,7 @@ function PreliminaryInfoScreen() {
     return () => {
       isMounted = false;
     };
-  }, [watchedAssetType, watchedBrand]);
+  }, [watchedBrand]);
 
   useEffect(() => {
     let isMounted = true;
@@ -695,44 +779,21 @@ function PreliminaryInfoScreen() {
         return;
       }
 
-      const assetType = mapAssetTypeToApiValue(watchedAssetType);
-      const brand = String(watchedBrand || "");
-      const model = String(watchedModel);
+      try {
+        const response = await referenceDataApi.getVehicleVersions({
+          modelCode: String(watchedModel),
+        });
 
-      const options = await loadOptionsWithAttempts(
-        "Vehicle versions",
-        referenceDataApi.getVehicleVersions,
-        [
-          {
-            assetType,
-            assetTypeCode: assetType,
-            brand,
-            brandCode: brand,
-            model,
-            modelCode: model,
-          },
-          {
-            assetTypeCode: assetType,
-            brandCode: brand,
-            modelCode: model,
-          },
-          {
-            brandCode: brand,
-            modelCode: model,
-          },
-          {
-            modelCode: model,
-          },
-          {
-            model,
-          },
-          undefined,
-        ],
-      );
+        if (!isMounted) return;
 
-      if (!isMounted) return;
+        setVehicleVersionOptions(mapReferenceOptions(response));
+      } catch (error) {
+        console.error("Load vehicle versions error:", error);
 
-      setVehicleVersionOptions(options);
+        if (!isMounted) return;
+
+        setVehicleVersionOptions([]);
+      }
     };
 
     void loadVehicleVersions();
@@ -740,42 +801,68 @@ function PreliminaryInfoScreen() {
     return () => {
       isMounted = false;
     };
-  }, [watchedAssetType, watchedBrand, watchedModel]);
+  }, [watchedModel]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadManufactureYears = async () => {
+      if (!watchedModel || !watchedVersion) {
+        setManufactureYearOptions([]);
+        return;
+      }
+
+      try {
+        const response = await referenceDataApi.getManufactureYears({
+          modelCode: String(watchedModel),
+          versionCode: String(watchedVersion),
+        });
+
+        if (!isMounted) return;
+
+        setManufactureYearOptions(mapReferenceOptions(response));
+      } catch (error) {
+        console.error("Load manufacture years error:", error);
+
+        if (!isMounted) return;
+
+        setManufactureYearOptions([]);
+      }
+    };
+
+    void loadManufactureYears();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [watchedModel, watchedVersion]);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadVehicleColors = async () => {
-      if (!watchedAssetType) {
+      if (!watchedModel || !watchedVersion || !watchedManufactureYear) {
         setVehicleColorOptions([]);
         return;
       }
 
-      const assetType = mapAssetTypeToApiValue(watchedAssetType);
+      try {
+        const response = await referenceDataApi.getVehicleColors({
+          modelCode: String(watchedModel),
+          versionCode: String(watchedVersion),
+          manufactureYear: Number(watchedManufactureYear),
+        });
 
-      const options = await loadOptionsWithAttempts(
-        "Vehicle colors",
-        referenceDataApi.getVehicleColors,
-        [
-          {
-            assetType,
-            assetTypeCode: assetType,
-            brand: String(watchedBrand || ""),
-            brandCode: String(watchedBrand || ""),
-            model: String(watchedModel || ""),
-            modelCode: String(watchedModel || ""),
-            vehicleVersion: String(watchedVersion || ""),
-            vehicleVersionCode: String(watchedVersion || ""),
-          },
-          { assetTypeCode: assetType },
-          { assetType },
-          undefined,
-        ],
-      );
+        if (!isMounted) return;
 
-      if (!isMounted) return;
+        setVehicleColorOptions(mapReferenceOptions(response));
+      } catch (error) {
+        console.error("Load vehicle colors error:", error);
 
-      setVehicleColorOptions(options);
+        if (!isMounted) return;
+
+        setVehicleColorOptions([]);
+      }
     };
 
     void loadVehicleColors();
@@ -783,15 +870,13 @@ function PreliminaryInfoScreen() {
     return () => {
       isMounted = false;
     };
-  }, [watchedAssetType, watchedBrand, watchedModel, watchedVersion]);
+  }, [watchedModel, watchedVersion, watchedManufactureYear]);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadResolvedVehicleVariant = async () => {
       if (
-        !watchedAssetType ||
-        !watchedBrand ||
         !watchedModel ||
         !watchedVersion ||
         !watchedManufactureYear ||
@@ -801,37 +886,26 @@ function PreliminaryInfoScreen() {
         return;
       }
 
-      const assetType = mapAssetTypeToApiValue(watchedAssetType);
+      try {
+        const response = await referenceDataApi.getVehicleVariant({
+          modelCode: String(watchedModel),
+          versionCode: String(watchedVersion),
+          manufactureYear: Number(watchedManufactureYear),
+          colorCode: String(watchedColor),
+        });
 
-      const options = await loadOptionsWithAttempts(
-        "Vehicle variant",
-        referenceDataApi.getVehicleVariant,
-        [
-          {
-            assetType,
-            assetTypeCode: assetType,
-            brand: String(watchedBrand),
-            brandCode: String(watchedBrand),
-            model: String(watchedModel),
-            modelCode: String(watchedModel),
-            vehicleVersion: String(watchedVersion),
-            vehicleVersionCode: String(watchedVersion),
-            manufactureYear: Number(watchedManufactureYear),
-            vehicleColor: String(watchedColor),
-            vehicleColorCode: String(watchedColor),
-          },
-          {
-            modelCode: String(watchedModel),
-            vehicleVersionCode: String(watchedVersion),
-            manufactureYear: Number(watchedManufactureYear),
-            vehicleColorCode: String(watchedColor),
-          },
-        ],
-      );
+        if (!isMounted) return;
 
-      if (!isMounted) return;
+        const options = mapReferenceOptions(response);
 
-      setResolvedVehicleVariant(options[0] || null);
+        setResolvedVehicleVariant(options[0] || null);
+      } catch (error) {
+        console.error("Load vehicle variant error:", error);
+
+        if (!isMounted) return;
+
+        setResolvedVehicleVariant(null);
+      }
     };
 
     void loadResolvedVehicleVariant();
@@ -839,20 +913,20 @@ function PreliminaryInfoScreen() {
     return () => {
       isMounted = false;
     };
-  }, [
-    watchedAssetType,
-    watchedBrand,
-    watchedModel,
-    watchedVersion,
-    watchedManufactureYear,
-    watchedColor,
-  ]);
+  }, [watchedModel, watchedVersion, watchedManufactureYear, watchedColor]);
 
   const marketValue =
     valuationResult?.data?.marketValue ??
     valuationResult?.marketValue ??
     marketPriceResult?.data?.marketValue ??
     0;
+
+  const selectedPackage = useMemo(() => {
+    return (
+      loanPackages.find((item) => item.id === selectedPackageId) ||
+      loanPackages[1]
+    );
+  }, [selectedPackageId]);
 
   const totalDeductionPercent = useMemo(() => {
     return deductionOptions
@@ -864,25 +938,25 @@ function PreliminaryInfoScreen() {
     return marketValue * (1 - totalDeductionPercent / 100);
   }, [marketValue, totalDeductionPercent]);
 
-  const selectedPackage = useMemo(() => {
+  const selectedRecommendedProduct = useMemo(() => {
     return (
-      loanPackages.find((item) => item.id === selectedPackageId) ||
-      loanPackages[1]
+      recommendedProducts.find(
+        (item) => item.productCode === selectedProductCode,
+      ) ||
+      recommendedProducts.find((item) => item.recommended) ||
+      recommendedProducts[0]
     );
-  }, [selectedPackageId]);
+  }, [recommendedProducts, selectedProductCode]);
 
   const maxLoanByAppraisal = useMemo(() => {
-    return Math.round(valueAfterDeduction * (selectedPackage.ltv / 100));
-  }, [selectedPackage, valueAfterDeduction]);
+    const ltv = selectedRecommendedProduct?.maxLtvPercent ?? selectedPackage.ltv;
+
+    return Math.round(valueAfterDeduction * (ltv / 100));
+  }, [selectedPackage.ltv, selectedRecommendedProduct, valueAfterDeduction]);
 
   const monthlyPayment = useMemo(() => {
-    const term = Number(selectedTerm || 12);
-    const principal = selectedPackage.maxLoanAmount;
-    const monthlyInterest = principal * (selectedPackage.interestRate / 100);
-    const monthlyPrincipal = principal / term;
-
-    return Math.round(monthlyPrincipal + monthlyInterest);
-  }, [selectedPackage, selectedTerm]);
+    return Math.round(selectedRecommendedProduct?.estimatedMonthlyPayment ?? 0);
+  }, [selectedRecommendedProduct]);
 
   const handleToggleDeduction = (id: string, checked: boolean) => {
     setSelectedDeductionIds((prev) => {
@@ -916,10 +990,33 @@ function PreliminaryInfoScreen() {
 
     return (
       data?.marketValue ??
-      data?.estimatedValue ??
       marketPriceResult?.data?.marketValue ??
       marketValue
     );
+  };
+
+  const getValuationTotalDeductionAmount = () => {
+    const data = getPreviewData();
+
+    const totalDeductionAmount = Number(data?.totalDeductionAmount ?? 0);
+
+    if (totalDeductionAmount > 0) {
+      return totalDeductionAmount;
+    }
+
+    const currentMarketValue = Number(
+      data?.marketValue ?? marketPriceResult?.data?.marketValue ?? 0,
+    );
+
+    const currentFinalValue = Number(
+      data?.finalValue ?? data?.valueAfterDeduction ?? 0,
+    );
+
+    if (currentMarketValue > 0 && currentFinalValue > 0) {
+      return Math.max(currentMarketValue - currentFinalValue, 0);
+    }
+
+    return 0;
   };
 
   const getValuationDeductionRate = () => {
@@ -931,20 +1028,36 @@ function PreliminaryInfoScreen() {
   const getValuationValueAfterDeduction = () => {
     const data = getPreviewData();
 
-    return data?.valueAfterDeduction ?? data?.finalValue ?? valueAfterDeduction;
+    return data?.finalValue ?? data?.valueAfterDeduction ?? valueAfterDeduction;
   };
 
   const getValuationMaxLoanAmount = () => {
     const data = getPreviewData();
 
-    return data?.maxLoanAmount ?? maxLoanByAppraisal;
+    return (
+      data?.loanableValue ??
+      data?.maxLoanAmount ??
+      selectedRecommendedProduct?.effectiveMaxLoanAmount ??
+      selectedRecommendedProduct?.maxLoanByLtv ??
+      maxLoanByAppraisal
+    );
   };
 
   const getValuationLtv = () => {
     const data = getPreviewData();
 
-    return data?.ltvRate ?? data?.loanToValue ?? selectedPackage.ltv;
+    return (
+      data?.ltvRatio ??
+      data?.ltvRate ??
+      data?.loanToValue ??
+      selectedRecommendedProduct?.maxLtvPercent ??
+      selectedPackage.ltv
+    );
   };
+
+  const adjustedAssetValueForRecommendation = Number(
+    getValuationValueAfterDeduction(),
+  );
 
   const buildPayload = (
     values: PreliminaryInfoFormValues,
@@ -959,18 +1072,34 @@ function PreliminaryInfoScreen() {
       valueAfterDeduction: getValuationValueAfterDeduction(),
       selectedPackageId,
       selectedTerm,
+      selectedProductCode:
+        selectedRecommendedProduct?.productCode || selectedProductCode,
+      recommendedProductCode:
+        loanRecommendationResult?.data?.recommendedProductCode ||
+        selectedRecommendedProduct?.productCode ||
+        "",
       monthlyPayment,
       maxLoanByAppraisal: getValuationMaxLoanAmount(),
     };
   };
 
   const saveCurrentStep2ToSession = (values: PreliminaryInfoFormValues) => {
-    saveStep2PreliminaryInfo({
+    const nextSessionData = {
       ...values,
+      monthlyIncome: getDigitsOnly(values.monthlyIncome),
+      desiredLoanAmount: getDigitsOnly(values.desiredLoanAmount),
       selectedDeductionIds,
       selectedPackageId,
       selectedTerm,
-    });
+      selectedProductCode:
+        selectedRecommendedProduct?.productCode || selectedProductCode,
+      recommendedProductCode:
+        loanRecommendationResult?.data?.recommendedProductCode ||
+        selectedRecommendedProduct?.productCode ||
+        "",
+    } as unknown as Parameters<typeof saveStep2PreliminaryInfo>[0];
+
+    saveStep2PreliminaryInfo(nextSessionData);
   };
 
   const buildDeductionItems = () => {
@@ -982,67 +1111,31 @@ function PreliminaryInfoScreen() {
       }));
   };
 
-  const getMissingAssetFields = () => {
+  const buildAssetValuationPayload = (
+    vehicleVariant: string,
+    marketValueFromApi: number,
+    deductionItems = buildDeductionItems(),
+  ): AssetValuationPayload => {
     const values = form.getValues();
-
-    const missingFields: string[] = [];
-
-    if (!values.assetType) missingFields.push("Loại tài sản");
-    if (!values.brand) missingFields.push("Hãng xe");
-    if (!values.model) missingFields.push("Dòng xe");
-    if (!values.version) missingFields.push("Phiên bản xe");
-    if (!values.manufactureYear) missingFields.push("Năm sản xuất");
-    if (!values.color) missingFields.push("Màu xe");
-
-    return missingFields;
-  };
-
-  const buildMarketPriceParams = (): AssetValuationMarketPriceParams => {
-    const values = form.getValues();
-
-    return {
-      assetType: mapAssetTypeToApiValue(values.assetType),
-      brand: String(values.brand || ""),
-      model: String(values.model || ""),
-      vehicleVariant: String(
-        resolvedVehicleVariant?.value || values.version || "",
-      ),
-      manufactureYear: Number(values.manufactureYear || 0),
-      vehicleColor: String(values.color || ""),
-    };
-  };
-
-  const buildAssetValuationPayload = (): AssetValuationPayload => {
-    const marketPriceParams = buildMarketPriceParams();
 
     return {
       assetSnapshot: {
-        assetType: marketPriceParams.assetType,
-        brand: marketPriceParams.brand,
-        model: marketPriceParams.model,
-        vehicleVariant: marketPriceParams.vehicleVariant,
-        manufactureYear: marketPriceParams.manufactureYear,
-        vehicleColor: marketPriceParams.vehicleColor,
+        assetType: mapAssetTypeToApiValue(values.assetType),
+        brand: String(values.brand || ""),
+        model: String(values.model || ""),
+        vehicleVariant,
+        manufactureYear: Number(values.manufactureYear || 0),
+        vehicleColor: String(values.color || ""),
+        marketValue: marketValueFromApi,
       },
-      deductionItems: buildDeductionItems(),
+      deductionItems,
     };
   };
 
-  const buildAssetValuationSignature = () => {
-    const payload = buildAssetValuationPayload();
-
-    return JSON.stringify({
-      assetSnapshot: payload.assetSnapshot,
-      deductionItems: payload.deductionItems
-        .slice()
-        .sort((a, b) => a.type.localeCompare(b.type)),
-    });
-  };
-
   const handleCalculateAssetValuation = async () => {
-    const missingFields = getMissingAssetFields();
+    const vehicleVariant = resolvedVehicleVariant?.value;
 
-    if (missingFields.length > 0) {
+    if (!vehicleVariant) {
       setMarketPriceResult(null);
       setValuationResult(null);
       setValuationError("");
@@ -1050,25 +1143,12 @@ function PreliminaryInfoScreen() {
       return;
     }
 
-    const isValidAssetForm = await form.trigger([
-      "assetType",
-      "brand",
-      "model",
-      "version",
-      "manufactureYear",
-      "color",
-    ]);
-
-    if (!isValidAssetForm) {
-      setMarketPriceResult(null);
-      setValuationResult(null);
-      setValuationError(
-        "Vui lòng nhập đúng thông tin tài sản trước khi định giá.",
-      );
-      return;
-    }
-
-    const signature = buildAssetValuationSignature();
+    const signature = JSON.stringify({
+      vehicleVariant,
+      deductionItems: buildDeductionItems()
+        .slice()
+        .sort((a, b) => a.type.localeCompare(b.type)),
+    });
 
     if (signature === valuationRequestSignatureRef.current) {
       return;
@@ -1080,20 +1160,30 @@ function PreliminaryInfoScreen() {
     setValuationError("");
 
     try {
-      const marketPriceParams = buildMarketPriceParams();
+      const marketPriceResponse = await assetValuationApi.getMarketPrice({
+        vehicleVariant,
+      });
 
-      const marketPriceResponse =
-        await assetValuationApi.getMarketPrice(marketPriceParams);
-
-      if (!marketPriceResponse.success) {
+      if (marketPriceResponse.success === false) {
         throw new Error(
           marketPriceResponse.message || "Không lấy được giá thị trường.",
         );
       }
 
+      const marketValueFromApi = Number(
+        marketPriceResponse.data?.marketValue || 0,
+      );
+
+      if (!marketValueFromApi) {
+        throw new Error("API market-price không trả về marketValue hợp lệ.");
+      }
+
       setMarketPriceResult(marketPriceResponse);
 
-      const previewPayload = buildAssetValuationPayload();
+      const previewPayload = buildAssetValuationPayload(
+        vehicleVariant,
+        marketValueFromApi,
+      );
 
       const previewResponse = await assetValuationApi.preview(previewPayload);
 
@@ -1125,9 +1215,7 @@ function PreliminaryInfoScreen() {
       clearTimeout(valuationTimerRef.current);
     }
 
-    const missingFields = getMissingAssetFields();
-
-    if (missingFields.length > 0) {
+    if (!resolvedVehicleVariant?.value) {
       setMarketPriceResult(null);
       setValuationResult(null);
       setValuationError("");
@@ -1137,22 +1225,206 @@ function PreliminaryInfoScreen() {
 
     valuationTimerRef.current = setTimeout(() => {
       void handleCalculateAssetValuation();
-    }, 700);
+    }, 500);
 
     return () => {
       if (valuationTimerRef.current) {
         clearTimeout(valuationTimerRef.current);
       }
     };
+  }, [resolvedVehicleVariant?.value, selectedDeductionIds.join("|")]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const preloadDeductionAmounts = async () => {
+      const vehicleVariant = resolvedVehicleVariant?.value;
+      const currentMarketValue = Number(
+        marketPriceResult?.data?.marketValue ?? 0,
+      );
+
+      if (
+        !vehicleVariant ||
+        currentMarketValue <= 0 ||
+        deductionOptions.length === 0
+      ) {
+        setDeductionAmountsById({});
+        return;
+      }
+
+      try {
+        const resultEntries = await Promise.all(
+          deductionOptions.map(async (deduction) => {
+            const payload = buildAssetValuationPayload(
+              vehicleVariant,
+              currentMarketValue,
+              [
+                {
+                  type: deduction.id,
+                  rate: deduction.percent,
+                },
+              ],
+            );
+
+            const response = await assetValuationApi.preview(payload);
+            const data = response.data || response;
+
+            const totalDeductionAmount = Number(
+              data?.totalDeductionAmount ?? 0,
+            );
+
+            const finalValue = Number(
+              data?.finalValue ?? data?.valueAfterDeduction ?? 0,
+            );
+
+            const amountFromFinalValue =
+              finalValue > 0
+                ? Math.max(currentMarketValue - finalValue, 0)
+                : 0;
+
+            const amountFromPercent =
+              deduction.percent > 0
+                ? (currentMarketValue * deduction.percent) / 100
+                : 0;
+
+            const amount =
+              totalDeductionAmount || amountFromFinalValue || amountFromPercent;
+
+            return [deduction.id, amount] as const;
+          }),
+        );
+
+        if (!isMounted) return;
+
+        setDeductionAmountsById(Object.fromEntries(resultEntries));
+      } catch (error) {
+        console.error("Preload deduction amounts error:", error);
+
+        if (!isMounted) return;
+
+        setDeductionAmountsById({});
+      }
+    };
+
+    void preloadDeductionAmounts();
+
+    return () => {
+      isMounted = false;
+    };
   }, [
-    watchedAssetType,
-    watchedBrand,
-    watchedModel,
-    watchedVersion,
-    watchedManufactureYear,
-    watchedColor,
     resolvedVehicleVariant?.value,
-    selectedDeductionIds.join("|"),
+    marketPriceResult?.data?.marketValue,
+    deductionOptions,
+  ]);
+
+  useEffect(() => {
+    if (loanRecommendationTimerRef.current) {
+      clearTimeout(loanRecommendationTimerRef.current);
+    }
+
+    const requestedLoanAmount = Number(
+      getDigitsOnly(String(watchedDesiredLoanAmount || "")),
+    );
+
+    if (
+      !applicationCode ||
+      !watchedLoanPurpose ||
+      !watchedAssetType ||
+      !watchedTerm ||
+      requestedLoanAmount <= 0 ||
+      adjustedAssetValueForRecommendation <= 0
+    ) {
+      setLoanRecommendationResult(null);
+      setRecommendedProducts([]);
+      setSelectedProductCode("");
+      setLoanRecommendationError("");
+      loanRecommendationSignatureRef.current = "";
+      return;
+    }
+
+    const payload = {
+      selectedLoanPurpose: String(watchedLoanPurpose),
+      selectedAssetType: mapAssetTypeToApiValue(watchedAssetType),
+      selectedTenor: Number(watchedTerm),
+      requestedLoanAmount,
+      adjustedAssetValue: adjustedAssetValueForRecommendation,
+      scoreGrade,
+    };
+
+    const signature = JSON.stringify({
+      applicationCode,
+      payload,
+    });
+
+    if (signature === loanRecommendationSignatureRef.current) {
+      return;
+    }
+
+    loanRecommendationTimerRef.current = setTimeout(async () => {
+      loanRecommendationSignatureRef.current = signature;
+
+      setIsLoanRecommendationLoading(true);
+      setLoanRecommendationError("");
+
+      try {
+        const response = await loanProductRecommendationApi.recommend(
+          applicationCode,
+          payload,
+        );
+
+        if (response.success === false) {
+          throw new Error(
+            response.message || "Không lấy được đề xuất gói vay.",
+          );
+        }
+
+        const products = response.data?.products || [];
+
+        setLoanRecommendationResult(response);
+        setRecommendedProducts(products);
+
+        const nextSelectedProductCode =
+          response.data?.recommendedProductCode ||
+          products.find((item) => item.recommended)?.productCode ||
+          products[0]?.productCode ||
+          "";
+
+        setSelectedProductCode((current) => {
+          if (current && products.some((item) => item.productCode === current)) {
+            return current;
+          }
+
+          return nextSelectedProductCode;
+        });
+      } catch (error) {
+        console.error("Loan product recommendation error:", error);
+
+        setLoanRecommendationResult(null);
+        setRecommendedProducts([]);
+        setSelectedProductCode("");
+        setLoanRecommendationError(
+          "Không thể lấy đề xuất gói vay. Vui lòng kiểm tra lại thông tin khoản vay và định giá tài sản.",
+        );
+
+        loanRecommendationSignatureRef.current = "";
+      } finally {
+        setIsLoanRecommendationLoading(false);
+      }
+    }, 600);
+
+    return () => {
+      if (loanRecommendationTimerRef.current) {
+        clearTimeout(loanRecommendationTimerRef.current);
+      }
+    };
+  }, [
+    applicationCode,
+    scoreGrade,
+    watchedLoanPurpose,
+    watchedAssetType,
+    watchedTerm,
+    watchedDesiredLoanAmount,
+    adjustedAssetValueForRecommendation,
   ]);
 
   const handleSaveDraft = async () => {
@@ -1199,6 +1471,20 @@ function PreliminaryInfoScreen() {
     });
   };
 
+  const resetValuation = () => {
+    setResolvedVehicleVariant(null);
+    setMarketPriceResult(null);
+    setValuationResult(null);
+    setValuationError("");
+    setDeductionAmountsById({});
+    setLoanRecommendationResult(null);
+    setRecommendedProducts([]);
+    setSelectedProductCode("");
+    setLoanRecommendationError("");
+    valuationRequestSignatureRef.current = "";
+    loanRecommendationSignatureRef.current = "";
+  };
+
   const handleAssetTypeChange = () => {
     form.setValue("brand", "");
     form.setValue("model", "");
@@ -1209,10 +1495,9 @@ function PreliminaryInfoScreen() {
     setVehicleBrandOptions([]);
     setVehicleModelOptions([]);
     setVehicleVersionOptions([]);
+    setManufactureYearOptions([]);
     setVehicleColorOptions([]);
-    setResolvedVehicleVariant(null);
-    setMarketPriceResult(null);
-    setValuationResult(null);
+    resetValuation();
   };
 
   const handleBrandChange = () => {
@@ -1223,10 +1508,9 @@ function PreliminaryInfoScreen() {
 
     setVehicleModelOptions([]);
     setVehicleVersionOptions([]);
+    setManufactureYearOptions([]);
     setVehicleColorOptions([]);
-    setResolvedVehicleVariant(null);
-    setMarketPriceResult(null);
-    setValuationResult(null);
+    resetValuation();
   };
 
   const handleModelChange = () => {
@@ -1235,32 +1519,29 @@ function PreliminaryInfoScreen() {
     form.setValue("color", "");
 
     setVehicleVersionOptions([]);
+    setManufactureYearOptions([]);
     setVehicleColorOptions([]);
-    setResolvedVehicleVariant(null);
-    setMarketPriceResult(null);
-    setValuationResult(null);
+    resetValuation();
   };
 
   const handleVersionChange = () => {
     form.setValue("manufactureYear", "");
     form.setValue("color", "");
 
+    setManufactureYearOptions([]);
     setVehicleColorOptions([]);
-    setResolvedVehicleVariant(null);
-    setMarketPriceResult(null);
-    setValuationResult(null);
+    resetValuation();
   };
 
   const handleManufactureYearChange = () => {
-    setResolvedVehicleVariant(null);
-    setMarketPriceResult(null);
-    setValuationResult(null);
+    form.setValue("color", "");
+
+    setVehicleColorOptions([]);
+    resetValuation();
   };
 
   const handleColorChange = () => {
-    setResolvedVehicleVariant(null);
-    setMarketPriceResult(null);
-    setValuationResult(null);
+    resetValuation();
   };
 
   return (
@@ -1369,7 +1650,7 @@ function PreliminaryInfoScreen() {
                     name="desiredLoanAmount"
                     label="Số tiền mong muốn vay"
                     required
-                    placeholder="VD: 10.000.000 "
+                    placeholder="VD: 10.000.000 Đ"
                     inputMode="numeric"
                     formatCurrencyVnd
                   />
@@ -1410,7 +1691,7 @@ function PreliminaryInfoScreen() {
                     form={form}
                     name="brand"
                     label="Hãng xe"
-                    placeholder="Chọn hãng"
+                    placeholder="Chọn loại tài sản trước"
                     disabled={!form.watch("assetType")}
                     options={vehicleBrandOptions}
                     onAfterChange={handleBrandChange}
@@ -1430,7 +1711,7 @@ function PreliminaryInfoScreen() {
                     form={form}
                     name="version"
                     label="Phiên bản xe"
-                    placeholder="Chọn phiên bản"
+                    placeholder="Chọn dòng xe trước"
                     disabled={!form.watch("model")}
                     options={vehicleVersionOptions}
                     onAfterChange={handleVersionChange}
@@ -1440,7 +1721,8 @@ function PreliminaryInfoScreen() {
                     form={form}
                     name="manufactureYear"
                     label="Năm sản xuất"
-                    placeholder="Chọn năm"
+                    placeholder="Chọn phiên bản trước"
+                    disabled={!form.watch("version")}
                     options={manufactureYearOptions}
                     onAfterChange={handleManufactureYearChange}
                   />
@@ -1449,8 +1731,8 @@ function PreliminaryInfoScreen() {
                     form={form}
                     name="color"
                     label="Màu xe"
-                    placeholder="Chọn màu"
-                    disabled={!form.watch("assetType")}
+                    placeholder="Chọn năm sản xuất trước"
+                    disabled={!form.watch("manufactureYear")}
                     options={vehicleColorOptions}
                     onAfterChange={handleColorChange}
                   />
@@ -1467,6 +1749,8 @@ function PreliminaryInfoScreen() {
                 <DeductionList
                   deductions={deductionOptions}
                   selectedIds={selectedDeductionIds}
+                  marketValue={Number(getValuationMarketValue())}
+                  deductionAmountsById={deductionAmountsById}
                   onToggle={handleToggleDeduction}
                 />
               </SectionCard>
@@ -1481,6 +1765,7 @@ function PreliminaryInfoScreen() {
                 <AppraisalSummary
                   marketValue={getValuationMarketValue()}
                   totalDeductionPercent={getValuationDeductionRate()}
+                  totalDeductionAmount={getValuationTotalDeductionAmount()}
                   valueAfterDeduction={getValuationValueAfterDeduction()}
                   maxLoanByAppraisal={getValuationMaxLoanAmount()}
                   ltv={getValuationLtv()}
@@ -1493,12 +1778,15 @@ function PreliminaryInfoScreen() {
                   </div>
                 )}
 
-                {marketPriceResult && valuationResult && !valuationError && (
-                  <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
-                    Đã tự động lấy giá thị trường và tính định giá sơ bộ thành
-                    công.
-                  </div>
-                )}
+                {resolvedVehicleVariant &&
+                  marketPriceResult &&
+                  valuationResult &&
+                  !valuationError && (
+                    <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+                      Đã resolve biến thể xe, lấy giá thị trường và tính định
+                      giá sơ bộ thành công.
+                    </div>
+                  )}
               </SectionCard>
 
               <SectionCard
@@ -1509,11 +1797,22 @@ function PreliminaryInfoScreen() {
                 iconClassName="bg-[#e9f8ee]"
               >
                 <LoanPackageSelector
-                  loanPackages={loanPackages}
-                  selectedPackageId={selectedPackageId}
+                  products={recommendedProducts}
+                  recommendedProductCode={
+                    loanRecommendationResult?.data?.recommendedProductCode
+                  }
+                  selectedProductCode={selectedProductCode}
                   selectedTerm={selectedTerm}
-                  monthlyPayment={monthlyPayment}
-                  onSelectPackage={setSelectedPackageId}
+                  requestedLoanAmount={Number(
+                    getDigitsOnly(form.watch("desiredLoanAmount") || ""),
+                  )}
+                  isLoading={isLoanRecommendationLoading}
+                  error={
+                    !applicationCode
+                      ? "Chưa có applicationCode nên chưa thể gọi API đề xuất gói vay."
+                      : loanRecommendationError
+                  }
+                  onSelectProduct={setSelectedProductCode}
                   onSelectTerm={handleSelectTerm}
                 />
               </SectionCard>

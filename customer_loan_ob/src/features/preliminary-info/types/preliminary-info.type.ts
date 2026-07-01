@@ -42,14 +42,25 @@ export type PreliminaryInfoPayload = {
   marketValue: number;
   valueAfterDeduction: number;
 
-  selectedPackageId: LoanPackageId;
+  selectedPackageId?: LoanPackageId;
   selectedTerm: string;
+
+  selectedProductCode?: string;
+  recommendedProductCode?: string;
+
   monthlyPayment: number;
   maxLoanByAppraisal: number;
 };
 
 export type PreliminaryInfoResponse = {
+  success?: boolean;
+  message?: string;
+  data?: {
+    loanApplicationId?: string;
+    applicationCode?: string;
+  };
+  errorCode?: string | null;
+  timestamp?: string;
   loanApplicationId?: string;
   applicationCode?: string;
-  message: string;
 };

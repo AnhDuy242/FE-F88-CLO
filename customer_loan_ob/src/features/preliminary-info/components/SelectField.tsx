@@ -79,15 +79,21 @@ export function SelectField({
               sideOffset={6}
               className="z-[9999] max-h-[260px] rounded-xl border border-[#dbe5dd] bg-white p-1 text-[#111827] shadow-xl"
             >
-              {options.map((option) => (
-                <SelectItem
-                  key={option.value}
-                  value={option.value}
-                  className="cursor-pointer rounded-lg bg-white text-[#111827] focus:bg-[#ecfdf3] focus:text-[#009b3a] data-[state=checked]:bg-[#e9f8ee] data-[state=checked]:text-[#009b3a]"
-                >
-                  {option.label}
-                </SelectItem>
-              ))}
+              {options.length === 0 ? (
+                <div className="px-3 py-2 text-sm text-[#94a3b8]">
+                  Không có dữ liệu
+                </div>
+              ) : (
+                options.map((option) => (
+                  <SelectItem
+                    key={option.value}
+                    value={option.value}
+                    className="cursor-pointer rounded-lg bg-white text-[#111827] focus:bg-[#ecfdf3] focus:text-[#009b3a] data-[state=checked]:bg-[#e9f8ee] data-[state=checked]:text-[#009b3a]"
+                  >
+                    {option.label}
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
 

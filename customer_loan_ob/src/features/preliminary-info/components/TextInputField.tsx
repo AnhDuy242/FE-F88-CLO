@@ -1,5 +1,4 @@
 import type { FieldPath, UseFormReturn } from "react-hook-form";
-import type { InputHTMLAttributes } from "react";
 
 import { Input } from "@/components/ui/input";
 
@@ -20,11 +19,22 @@ type TextInputFieldProps = {
   placeholder?: string;
   required?: boolean;
   className?: string;
-  inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
-  maxLength?: number;
   onlyNumber?: boolean;
   uppercase?: boolean;
+  maxLength?: number;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
+  formatCurrencyVnd?: boolean;
 };
+
+function formatCurrencyVnd(value: string) {
+  const digitsOnly = value.replace(/\D/g, "");
+
+  if (!digitsOnly) return "";
+
+  const normalizedValue = digitsOnly.replace(/^0+(?=\d)/, "");
+
+  return `${normalizedValue.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} Đ`;
+}
 
 export function TextInputField({
   form,
@@ -32,51 +42,67 @@ export function TextInputField({
   label,
   placeholder,
   required,
-  className = "bg-white",
-  inputMode,
-  maxLength,
+  className,
   onlyNumber,
   uppercase,
+  maxLength,
+  inputMode,
+  formatCurrencyVnd: shouldFormatCurrencyVnd,
 }: TextInputFieldProps) {
   return (
     <FormField
       control={form.control}
       name={name}
-      render={({ field }) => (
-        <FormItem>
-          <FormLabel>
-            {label} {required && <span className="text-red-500">*</span>}
-          </FormLabel>
+      render={({ field }) => {
+        const fieldValue =
+          typeof field.value === "string" ? field.value : "";
 
-          <FormControl>
-            <Input
-              placeholder={placeholder}
-              inputMode={inputMode}
-              maxLength={maxLength}
-              className={`h-12 rounded-xl border border-[#dbe5dd] ${className}`}
-              value={(field.value as string) || ""}
-              onChange={(event) => {
-                let value = event.target.value;
+        return (
+          <FormItem>
+            <FormLabel>
+              {label} {required && <span className="text-red-500">*</span>}
+            </FormLabel>
 
-                if (onlyNumber) {
-                  value = value.replace(/\D/g, "");
-                }
+            <FormControl>
+              <Input
+                name={field.name}
+                ref={field.ref}
+                value={fieldValue}
+                placeholder={placeholder}
+                maxLength={maxLength}
+                inputMode={inputMode}
+                onBlur={field.onBlur}
+                onChange={(event) => {
+                  let nextValue = event.target.value;
 
-                if (uppercase) {
-                  value = value.toUpperCase();
-                }
+                  if (shouldFormatCurrencyVnd) {
+                    field.onChange(formatCurrencyVnd(nextValue));
+                    return;
+                  }
 
-                field.onChange(value);
-              }}
-              onBlur={field.onBlur}
-              name={field.name}
-              ref={field.ref}
-            />
-          </FormControl>
+                  if (onlyNumber) {
+                    nextValue = nextValue.replace(/\D/g, "");
+                  }
 
-          <FormMessage className="text-red-500" />
-        </FormItem>
-      )}
+                  if (uppercase) {
+                    nextValue = nextValue.toUpperCase();
+                  }
+
+                  field.onChange(nextValue);
+                }}
+                className={[
+                  "h-12 rounded-xl border border-[#dbe5dd] bg-white px-4 text-base text-[#111827] shadow-sm placeholder:text-[#94a3b8] focus-visible:ring-1 focus-visible:ring-[#009b3a]",
+                  className,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              />
+            </FormControl>
+
+            <FormMessage className="text-red-500" />
+          </FormItem>
+        );
+      }}
     />
   );
 }

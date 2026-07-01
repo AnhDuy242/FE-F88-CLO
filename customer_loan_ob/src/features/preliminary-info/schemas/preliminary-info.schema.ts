@@ -1,19 +1,16 @@
 import { z } from "zod";
 
 const phoneRegex = /^[0-9]{9,11}$/;
-
 const validTerms = ["12", "36", "48", "72"];
 
-const normalizePlateNumber = (value: string) => {
-  return value.replace(/[\s.-]/g, "").toUpperCase();
+const getDigitsOnly = (value: string) => {
+  return value.replace(/\D/g, "");
 };
-
-const plateNumberRegex = /^[0-9]{2}[A-ZĐ]{1,2}[0-9]?[0-9]{4,5}$/i;
 
 const isPositiveNumberString = (value: string) => {
   if (!value) return false;
 
-  const normalizedValue = value.replace(/[.,\s]/g, "");
+  const normalizedValue = getDigitsOnly(value);
 
   return /^[0-9]+$/.test(normalizedValue) && Number(normalizedValue) > 0;
 };
@@ -65,24 +62,11 @@ export const preliminaryInfoSchema = z.object({
     .refine((value) => validTerms.includes(value), "Kỳ hạn không hợp lệ"),
 
   assetType: z.string().min(1, "Vui lòng chọn loại tài sản"),
-
-  plateNumber: z
-    .string()
-    .min(1, "Vui lòng nhập biển số xe")
-    .refine(
-      (value) => plateNumberRegex.test(normalizePlateNumber(value)),
-      "Biển số xe không đúng định dạng",
-    ),
-
-  brand: z.string().optional(),
-
-  model: z.string().optional(),
-
-  version: z.string().optional(),
-
-  manufactureYear: z.string().optional(),
-
-  color: z.string().optional(),
+  brand: z.string().min(1, "Vui lòng chọn hãng xe"),
+  model: z.string().min(1, "Vui lòng chọn dòng xe"),
+  version: z.string().min(1, "Vui lòng chọn phiên bản xe"),
+  manufactureYear: z.string().min(1, "Vui lòng chọn năm sản xuất"),
+  color: z.string().min(1, "Vui lòng chọn màu xe"),
 });
 
 export type PreliminaryInfoFormValues = z.infer<

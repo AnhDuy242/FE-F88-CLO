@@ -28,7 +28,6 @@ export type Step2PreliminarySessionData = {
   term?: string;
 
   assetType?: string;
-  plateNumber?: string;
   brand?: string;
   model?: string;
   version?: string;
@@ -38,6 +37,8 @@ export type Step2PreliminarySessionData = {
   selectedDeductionIds?: string[];
   selectedPackageId?: "standard" | "promotion" | "vip";
   selectedTerm?: string;
+
+  applicationCode?: string;
 };
 
 export type LoanOnboardingSessionData = {
@@ -45,8 +46,67 @@ export type LoanOnboardingSessionData = {
   step2PreliminaryInfo?: Step2PreliminarySessionData;
 };
 
+type SessionStorageValue<T> = {
+  data: T;
+  expiresAt: number;
+};
+
 const LOAN_ONBOARDING_SESSION_KEY = "F88_LOAN_ONBOARDING_SESSION";
 const CUSTOMER_IDENTIFY_OCR_KEY = "customerIdentifyOcrData";
+
+const SESSION_TIMEOUT = 30 * 60 * 1000;
+
+function getExpiresAt() {
+  return Date.now() + SESSION_TIMEOUT;
+}
+
+function isExpired(expiresAt?: number) {
+  if (!expiresAt) return false;
+
+  return Date.now() > expiresAt;
+}
+
+function setSessionWithTimeout<T>(key: string, data: T) {
+  const value: SessionStorageValue<T> = {
+    data,
+    expiresAt: getExpiresAt(),
+  };
+
+  sessionStorage.setItem(key, JSON.stringify(value));
+}
+
+function getSessionWithTimeout<T>(key: string): T | null {
+  try {
+    const rawData = sessionStorage.getItem(key);
+
+    if (!rawData) {
+      return null;
+    }
+
+    const parsedData = JSON.parse(rawData) as SessionStorageValue<T> | T;
+
+    if (
+      typeof parsedData === "object" &&
+      parsedData !== null &&
+      "data" in parsedData &&
+      "expiresAt" in parsedData
+    ) {
+      const wrappedData = parsedData as SessionStorageValue<T>;
+
+      if (isExpired(wrappedData.expiresAt)) {
+        sessionStorage.removeItem(key);
+        return null;
+      }
+
+      return wrappedData.data;
+    }
+
+    return parsedData as T;
+  } catch {
+    sessionStorage.removeItem(key);
+    return null;
+  }
+}
 
 function convertDdMmYyyyToIsoDate(value?: string) {
   if (!value) return "";
@@ -71,61 +131,68 @@ function convertDdMmYyyyToIsoDate(value?: string) {
 }
 
 function getCustomerIdentifyOcrData(): Step1IdentityData | null {
-  try {
-    const rawData = sessionStorage.getItem(CUSTOMER_IDENTIFY_OCR_KEY);
+  const ocrData = getSessionWithTimeout<{
+    fullName?: string;
+    dateOfBirth?: string;
+    dateOfBirthFormatted?: string;
+    identityNumber?: string;
+    phoneNumber?: string;
+    sex?: string;
+    gender?: string;
+    documentType?: string;
+    nationality?: string;
+    issueDate?: string;
+    expiryDate?: string;
+    placeOfOrigin?: string;
+    placeOfResidence?: string;
+  }>(CUSTOMER_IDENTIFY_OCR_KEY);
 
-    if (!rawData) {
-      return null;
-    }
-
-    const ocrData = JSON.parse(rawData) as {
-      fullName?: string;
-      dateOfBirth?: string;
-      dateOfBirthFormatted?: string;
-      identityNumber?: string;
-      phoneNumber?: string;
-      sex?: string;
-      gender?: string;
-      documentType?: string;
-      nationality?: string;
-      issueDate?: string;
-      expiryDate?: string;
-      placeOfOrigin?: string;
-      placeOfResidence?: string;
-    };
-
-    return {
-      fullName: ocrData.fullName || "",
-      identityNumber: ocrData.identityNumber || "",
-      phoneNumber: ocrData.phoneNumber || "",
-      dateOfBirth:
-        ocrData.dateOfBirthFormatted ||
-        convertDdMmYyyyToIsoDate(ocrData.dateOfBirth),
-      sex: ocrData.sex || ocrData.gender || "",
-      documentType: ocrData.documentType || "",
-      nationality: ocrData.nationality || "",
-      issueDate: ocrData.issueDate || "",
-      expiryDate: ocrData.expiryDate || "",
-      placeOfOrigin: ocrData.placeOfOrigin || "",
-      placeOfResidence: ocrData.placeOfResidence || "",
-    };
-  } catch {
+  if (!ocrData) {
     return null;
   }
+
+  return {
+    fullName: ocrData.fullName || "",
+    identityNumber: ocrData.identityNumber || "",
+    phoneNumber: ocrData.phoneNumber || "",
+    dateOfBirth:
+      ocrData.dateOfBirthFormatted ||
+      convertDdMmYyyyToIsoDate(ocrData.dateOfBirth),
+    sex: ocrData.sex || ocrData.gender || "",
+    documentType: ocrData.documentType || "",
+    nationality: ocrData.nationality || "",
+    issueDate: ocrData.issueDate || "",
+    expiryDate: ocrData.expiryDate || "",
+    placeOfOrigin: ocrData.placeOfOrigin || "",
+    placeOfResidence: ocrData.placeOfResidence || "",
+  };
+}
+
+export function saveCustomerIdentifyOcrData(data: {
+  fullName?: string;
+  dateOfBirth?: string;
+  dateOfBirthFormatted?: string;
+  identityNumber?: string;
+  phoneNumber?: string;
+  sex?: string;
+  gender?: string;
+  documentType?: string;
+  nationality?: string;
+  issueDate?: string;
+  expiryDate?: string;
+  placeOfOrigin?: string;
+  placeOfResidence?: string;
+  savedAt?: string;
+}) {
+  setSessionWithTimeout(CUSTOMER_IDENTIFY_OCR_KEY, data);
 }
 
 export function getLoanOnboardingSession(): LoanOnboardingSessionData {
-  try {
-    const rawData = sessionStorage.getItem(LOAN_ONBOARDING_SESSION_KEY);
+  const session = getSessionWithTimeout<LoanOnboardingSessionData>(
+    LOAN_ONBOARDING_SESSION_KEY,
+  );
 
-    if (!rawData) {
-      return {};
-    }
-
-    return JSON.parse(rawData) as LoanOnboardingSessionData;
-  } catch {
-    return {};
-  }
+  return session || {};
 }
 
 export function saveLoanOnboardingSession(data: LoanOnboardingSessionData) {
@@ -145,10 +212,7 @@ export function saveLoanOnboardingSession(data: LoanOnboardingSessionData) {
     },
   };
 
-  sessionStorage.setItem(
-    LOAN_ONBOARDING_SESSION_KEY,
-    JSON.stringify(nextSession)
-  );
+  setSessionWithTimeout(LOAN_ONBOARDING_SESSION_KEY, nextSession);
 }
 
 export function saveStep1Identity(data: Step1IdentityData) {
@@ -177,6 +241,20 @@ export function getStep2PreliminaryInfo(): Step2PreliminarySessionData | null {
   const session = getLoanOnboardingSession();
 
   return session.step2PreliminaryInfo || null;
+}
+
+export function refreshLoanOnboardingSessionTimeout() {
+  const session = getLoanOnboardingSession();
+
+  if (Object.keys(session).length > 0) {
+    setSessionWithTimeout(LOAN_ONBOARDING_SESSION_KEY, session);
+  }
+
+  const ocrData = getSessionWithTimeout(CUSTOMER_IDENTIFY_OCR_KEY);
+
+  if (ocrData) {
+    setSessionWithTimeout(CUSTOMER_IDENTIFY_OCR_KEY, ocrData);
+  }
 }
 
 export function clearLoanOnboardingSession() {

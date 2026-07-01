@@ -31,12 +31,11 @@ export type PreliminaryInfoPayload = {
   term: string;
 
   assetType: string;
-  plateNumber: string;
-  brand?: string;
-  model?: string;
-  version?: string;
-  manufactureYear?: string;
-  color?: string;
+  brand: string;
+  model: string;
+  version: string;
+  manufactureYear: string;
+  color: string;
 
   selectedDeductionIds: string[];
   totalDeductionPercent: number;
@@ -51,5 +50,6 @@ export type PreliminaryInfoPayload = {
 
 export type PreliminaryInfoResponse = {
   loanApplicationId?: string;
+  applicationCode?: string;
   message: string;
 };

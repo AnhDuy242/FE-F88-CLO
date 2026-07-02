@@ -1,8 +1,6 @@
-import type { AssetTypeApiValue } from "./asset-valuation.type";
-
 export type LoanProductRecommendationPayload = {
   selectedLoanPurpose: string;
-  selectedAssetType: AssetTypeApiValue;
+  selectedAssetType: "MOTORBIKE" | "CAR";
   selectedTenor: number;
   requestedLoanAmount: number;
   adjustedAssetValue: number;
@@ -10,26 +8,49 @@ export type LoanProductRecommendationPayload = {
 };
 
 export type LoanProductRecommendationProduct = {
-  rank: number;
+  rank?: number;
+
   productCode: string;
   productName: string;
-  minLoanAmount: number;
-  productMaxLoanAmount: number;
-  maxLtvPercent: number;
-  maxLoanByLtv: number;
-  effectiveMaxLoanAmount: number;
-  suggestedLoanAmount: number;
-  loanTenor: number;
-  monthlyInterestRatePercent: number;
-  principalPerMonth: number;
-  interestPerMonth: number;
-  estimatedMonthlyPayment: number;
-  recommended: boolean;
+
+  minLoanAmount?: number;
+  productMaxLoanAmount?: number;
+  maxLoanAmount?: number;
+
+  maxLtvPercent?: number;
+  maxLoanByLtv?: number;
+  effectiveMaxLoanAmount?: number;
+
+  suggestedLoanAmount?: number;
+  loanAmountCap?: number;
+
+  monthlyInterestRatePercent?: number;
+  principalPerMonth?: number;
+  interestPerMonth?: number;
+  estimatedMonthlyPayment?: number;
+
+  tenor?: number;
+  supportedTermMonths?: number[];
+  recommended?: boolean;
+
+  [key: string]: unknown;
 };
 
 export type LoanProductRecommendationData = {
-  recommendedProductCode: string;
-  products: LoanProductRecommendationProduct[];
+  applicationCode?: string;
+  loanPurpose?: string;
+  assetType?: string;
+  requestedTermMonths?: number;
+  requestedAmount?: number;
+  scoreGrade?: string;
+  valuation?: {
+    marketValue?: number;
+    totalDeductionAmount?: number;
+    finalValue?: number;
+    appliedDeductionTypes?: string[];
+  };
+  recommendedProductCode?: string;
+  products?: LoanProductRecommendationProduct[];
 };
 
 export type LoanProductRecommendationResponse = {

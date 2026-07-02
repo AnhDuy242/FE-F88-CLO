@@ -7,9 +7,9 @@ export const customerIdentifySchema = z.object({
 
   phoneNumber: z
     .string()
-    .optional()
+    .min(1, "Vui long nhap so dien thoai")
     .refine(
-      (value) => !value || /^[0-9]{9,11}$/.test(value),
+      (value) => /^[0-9]{9,11}$/.test(value),
       "Số điện thoại không hợp lệ"
     ),
 

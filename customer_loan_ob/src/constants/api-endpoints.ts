@@ -1,12 +1,26 @@
 export const API_ENDPOINTS = {
   customerIdentify: {
-    checkCustomer: "/customers/check",
+    checkCustomer: "/customers/lookup",
+    createCustomer: "/customers",
     ocrCccd: "/customers/ocr/extract",
   },
 
+  loanApplication: {
+    createDraft: "/loan-applications",
+    detail: (applicationCode: string) => `/loan-applications/${applicationCode}`,
+    saveDraft: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/draft`,
+    completePreliminaryStep: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/steps/preliminary/complete`,
+    submitForApproval: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/submit-for-approval`,
+  },
+
   preliminaryInfo: {
-    saveDraft: "/loan-applications/preliminary-info/draft",
-    submit: "/loan-applications/preliminary-info",
+    saveDraft: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/draft`,
+    submit: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/steps/preliminary/complete`,
   },
 
   assetValuation: {
@@ -17,15 +31,21 @@ export const API_ENDPOINTS = {
   },
 
   loanProductRecommendation: {
-    recommend: (applicationCode: string) =>
+    recommend: "/loan-products/recommendations",
+    recommendByApplication: (applicationCode: string) =>
       `/loan-applications/${applicationCode}/loan-product-recommendations`,
   },
 
   referenceData: {
     assetTypes: "/reference-data/asset-types",
     genders: "/reference-data/genders",
+    maritalStatuses: "/reference-data/marital-statuses",
     occupations: "/reference-data/occupations",
+    incomeSources: "/reference-data/income-sources",
+    banks: "/reference-data/banks",
+    referencePersonRelationships: "/reference-data/reference-person-relationships",
     loanPurposes: "/reference-data/loan-purposes",
+    loanTerms: "/reference-data/loan-terms",
 
     vehicleBrands: "/reference-data/vehicle-brands",
     vehicleModels: "/reference-data/vehicle-models",
@@ -34,7 +54,6 @@ export const API_ENDPOINTS = {
     vehicleColors: "/reference-data/vehicle-colors",
     vehicleVariant: "/reference-data/vehicle-variant",
 
-    valuationDeductionFactors:
-      "/reference-data/valuation-deduction-factors",
+    valuationDeductionFactors: "/reference-data/valuation-deduction-factors",
   },
 } as const;

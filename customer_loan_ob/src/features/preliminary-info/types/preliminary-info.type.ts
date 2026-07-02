@@ -52,6 +52,58 @@ export type PreliminaryInfoPayload = {
   maxLoanByAppraisal: number;
 };
 
+export type ApiResponse<T> = {
+  success?: boolean;
+  message?: string;
+  data?: T;
+  errorCode?: string | null;
+  timestamp?: string;
+};
+
+export type CreateLoanApplicationPayload = {
+  customerCode: string;
+  applicationChannel: string;
+  branchCode: string;
+  staffCode: string;
+};
+
+export type LoanApplicationDraftData = {
+  applicationCode: string;
+  applicationState: string;
+  customerCode: string;
+  createdDate?: string | null;
+  lastSavedAt?: string | null;
+};
+
+export type PreliminaryApplicantSnapshotPayload = {
+  fullName: string;
+  dateOfBirth: string;
+  gender: string;
+  identifierNumber: string;
+  phoneNumber: string;
+  occupation: string;
+  monthlyIncome: number;
+};
+
+export type PreliminaryLoanRequestPayload = {
+  loanPurpose: string;
+  requestedAmount: number;
+  requestedTenure: number;
+};
+
+export type SaveLoanApplicationDraftPayload = {
+  applicantSnapshot: PreliminaryApplicantSnapshotPayload;
+  loanRequest: PreliminaryLoanRequestPayload;
+};
+
+export type StepCompletionData = {
+  applicationCode: string;
+  step: string;
+  completed: boolean;
+  nextStep?: string | null;
+  validationErrors: string[];
+};
+
 export type PreliminaryInfoResponse = {
   success?: boolean;
   message?: string;

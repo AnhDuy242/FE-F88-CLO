@@ -1,12 +1,12 @@
-import { Check, ChevronDown } from "lucide-react";
-
-import type { LoanProductRecommendationProduct } from "../types/loan-product-recommendation.type";
+import type { LoanProductRecommendationProduct } from "@/features/preliminary-info/types/loan-product-recommendation.type";
+import type { ReferenceOption } from "@/features/preliminary-info/types/reference-data.type";
 
 type LoanPackageSelectorProps = {
   products: LoanProductRecommendationProduct[];
   recommendedProductCode?: string;
   selectedProductCode: string;
   selectedTerm: string;
+  termOptions: ReferenceOption[];
   requestedLoanAmount: number;
   isLoading?: boolean;
   error?: string;
@@ -14,14 +14,59 @@ type LoanPackageSelectorProps = {
   onSelectTerm: (term: string) => void;
 };
 
-const termOptions = ["12", "36", "48", "72"];
+function formatCurrencyVnd(value?: number) {
+  const safeValue = Number(value || 0);
 
-function formatCurrencyVnd(value: number) {
-  return `${Math.round(value || 0).toLocaleString("vi-VN")} đ`;
+  return `${Math.max(safeValue, 0).toLocaleString("vi-VN")} đ`;
 }
 
-function formatPercent(value: number) {
-  return `${Number(value || 0).toLocaleString("vi-VN")}%/tháng`;
+function formatPercent(value?: number) {
+  const safeValue = Number(value || 0);
+
+  return `${safeValue.toLocaleString("vi-VN")}%`;
+}
+
+function getProductDisplayAmount(
+  product: LoanProductRecommendationProduct | undefined,
+  requestedLoanAmount: number,
+) {
+  if (!product) return 0;
+
+  return (
+    Number(product.suggestedLoanAmount) ||
+    Number(product.loanAmountCap) ||
+    Number(product.effectiveMaxLoanAmount) ||
+    Number(product.productMaxLoanAmount) ||
+    requestedLoanAmount ||
+    0
+  );
+}
+
+function getProductMaxAmount(product: LoanProductRecommendationProduct | undefined) {
+  if (!product) return 0;
+
+  return (
+    Number(product.effectiveMaxLoanAmount) ||
+    Number(product.productMaxLoanAmount) ||
+    Number(product.maxLoanByLtv) ||
+    Number(product.loanAmountCap) ||
+    0
+  );
+}
+
+function getProductInterestRate(
+  product: LoanProductRecommendationProduct | undefined,
+) {
+  if (!product) return 0;
+
+  return Number(product.monthlyInterestRatePercent || 0);
+}
+
+function getProductTenor(
+  product: LoanProductRecommendationProduct | undefined,
+  selectedTerm: string,
+) {
+  return String(product?.tenor || selectedTerm || "");
 }
 
 export function LoanPackageSelector({
@@ -29,200 +74,232 @@ export function LoanPackageSelector({
   recommendedProductCode,
   selectedProductCode,
   selectedTerm,
+  termOptions,
   requestedLoanAmount,
-  isLoading,
-  error,
+  isLoading = false,
+  error = "",
   onSelectProduct,
   onSelectTerm,
 }: LoanPackageSelectorProps) {
   const selectedProduct =
-    products.find((item) => item.productCode === selectedProductCode) ||
-    products.find((item) => item.productCode === recommendedProductCode) ||
-    products.find((item) => item.recommended) ||
+    products.find((product) => product.productCode === selectedProductCode) ||
+    products.find((product) => product.recommended) ||
     products[0];
 
-  if (isLoading) {
-    return (
-      <div className="rounded-2xl border border-[#dbe5dd] bg-white px-5 py-6 text-sm font-medium text-[#64748b]">
-        Đang lấy đề xuất gói vay phù hợp...
-      </div>
-    );
-  }
+  const selectedDisplayAmount = getProductDisplayAmount(
+    selectedProduct,
+    requestedLoanAmount,
+  );
 
-  if (error) {
-    return (
-      <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-medium text-red-600">
-        {error}
-      </div>
-    );
-  }
+  const selectedInterestRate = getProductInterestRate(selectedProduct);
 
-  if (products.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-[#dbe5dd] bg-white px-5 py-6 text-sm font-medium text-[#64748b]">
-        Chưa có đề xuất khoản vay. Hệ thống sẽ tự động đề xuất sau khi có đủ
-        mục đích vay, kỳ hạn, số tiền vay và kết quả định giá tài sản.
-      </div>
-    );
-  }
+  const selectedTenor = getProductTenor(selectedProduct, selectedTerm);
 
   return (
     <div>
-      <p className="mb-4 text-base font-semibold text-[#334155]">
-        Chọn gói vay
-      </p>
+      <div>
+        <h3 className="text-base font-bold text-[#111827]">Chọn gói vay</h3>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        {products.map((product) => {
-          const selected = product.productCode === selectedProduct?.productCode;
-          const recommended =
-            product.recommended ||
-            product.productCode === recommendedProductCode;
-
-          return (
-            <button
-              key={product.productCode}
-              type="button"
-              onClick={() => {
-                onSelectProduct(product.productCode);
-              }}
-              className={[
-                "relative min-h-[190px] rounded-2xl border bg-white p-5 text-left transition",
-                selected
-                  ? "border-[#009b3a] bg-[#f4fbf5]"
-                  : "border-[#dbe5dd] hover:border-[#009b3a]",
-              ].join(" ")}
-            >
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-lg font-bold text-[#111827]">
-                    {product.productName}
-                  </p>
-
-                  {recommended && (
-                    <span className="mt-2 inline-flex rounded-full bg-[#dff4df] px-3 py-1 text-xs font-semibold text-[#166534]">
-                      Khuyến nghị
-                    </span>
-                  )}
-                </div>
-
-                <span
-                  className={[
-                    "flex size-7 shrink-0 items-center justify-center rounded-full border",
-                    selected
-                      ? "border-[#009b3a] bg-[#009b3a] text-white"
-                      : "border-[#94a3b8] bg-white text-transparent",
-                  ].join(" ")}
-                >
-                  <Check size={16} />
-                </span>
-              </div>
-
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#64748b]">Lãi suất</span>
-                  <span className="font-bold text-[#111827]">
-                    {formatPercent(product.monthlyInterestRatePercent)}
-                  </span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#64748b]">LTV tối đa</span>
-                  <span className="font-bold text-[#111827]">
-                    {product.maxLtvPercent}%
-                  </span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#64748b]">Vay tối đa</span>
-                  <span className="font-bold text-[#111827]">
-                    {formatCurrencyVnd(product.effectiveMaxLoanAmount)}
-                  </span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#64748b]">Kỳ hạn</span>
-                  <span className="font-bold text-[#111827]">
-                    {product.loanTenor} tháng
-                  </span>
-                </div>
-              </div>
-            </button>
-          );
-        })}
+        <p className="mt-1 text-sm text-[#64748b]">
+          Hệ thống sẽ đề xuất tối đa 3 gói vay phù hợp theo tài sản, kỳ hạn và
+          nhu cầu vay.
+        </p>
       </div>
 
-      {selectedProduct && (
-        <div className="mt-6 rounded-2xl bg-[#008b05] px-6 py-6 text-white">
-          <p className="mb-6 text-lg font-bold">Tóm tắt khoản vay</p>
+      {isLoading && (
+        <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
+          Đang lấy đề xuất khoản vay...
+        </div>
+      )}
 
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
-            <div>
-              <p className="text-sm text-white/70">Gói vay</p>
-              <p className="mt-2 font-bold">{selectedProduct.productName}</p>
-            </div>
+      {error && (
+        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+          {error}
+        </div>
+      )}
 
-            <div>
-              <p className="text-sm text-white/70">Số tiền đề xuất</p>
-              <p className="mt-2 font-bold">
-                {formatCurrencyVnd(selectedProduct.suggestedLoanAmount)}
-              </p>
-            </div>
+      {!isLoading && !error && products.length === 0 && (
+        <div className="mt-4 rounded-lg border border-[#dbe5dd] bg-[#f8fbf8] px-4 py-5 text-sm text-[#64748b]">
+          Chưa có gói vay được đề xuất. Vui lòng nhập đủ mục đích vay, số tiền
+          mong muốn vay, kỳ hạn và thông tin định giá tài sản.
+        </div>
+      )}
 
-            <div>
-              <p className="text-sm text-white/70">Lãi suất</p>
-              <p className="mt-2 font-bold">
-                {formatPercent(selectedProduct.monthlyInterestRatePercent)}
-              </p>
-            </div>
+      {products.length > 0 && (
+        <>
+          <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            {products.slice(0, 3).map((product, index) => {
+              const isSelected =
+                selectedProductCode === product.productCode ||
+                (!selectedProductCode &&
+                  selectedProduct?.productCode === product.productCode);
 
-            <div>
-              <p className="text-sm text-white/70">Kỳ hạn</p>
+              const isRecommended =
+                product.recommended ||
+                product.productCode === recommendedProductCode ||
+                index === 0;
 
-              <div className="relative mt-2 inline-flex">
-                <select
-                  value={selectedTerm}
-                  onChange={(event) => {
-                    onSelectTerm(event.target.value);
-                  }}
-                  className="h-9 appearance-none rounded-xl border border-white/25 bg-white/10 px-4 pr-9 text-sm font-bold text-white outline-none"
+              const productMaxAmount = getProductMaxAmount(product);
+              const productInterestRate = getProductInterestRate(product);
+
+              return (
+                <button
+                  key={product.productCode}
+                  type="button"
+                  onClick={() => onSelectProduct(product.productCode)}
+                  className={[
+                    "rounded-xl border bg-white p-5 text-left transition",
+                    isSelected
+                      ? "border-[#009b3a] ring-1 ring-[#009b3a]"
+                      : "border-[#dbe5dd] hover:border-[#009b3a]",
+                  ].join(" ")}
                 >
-                  {termOptions.map((term) => (
-                    <option key={term} value={term} className="text-black">
-                      {term} tháng
-                    </option>
-                  ))}
-                </select>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-lg font-bold text-[#111827]">
+                        {product.productName || product.productCode}
+                      </h4>
 
-                <ChevronDown
-                  size={16}
-                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-white"
-                />
+                      {isRecommended && (
+                        <span className="mt-2 inline-flex rounded-full bg-[#e8f8e8] px-3 py-1 text-xs font-semibold text-[#009b3a]">
+                          Khuyến nghị
+                        </span>
+                      )}
+                    </div>
+
+                    {isSelected && (
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#009b3a] text-sm font-bold text-white">
+                        ✓
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-5 space-y-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[#64748b]">Lãi suất</span>
+                      <span className="font-bold text-[#111827]">
+                        {productInterestRate
+                          ? `${productInterestRate.toLocaleString(
+                              "vi-VN",
+                            )}%/tháng`
+                          : "Chưa có"}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[#64748b]">LTV tối đa</span>
+                      <span className="font-bold text-[#111827]">
+                        {formatPercent(product.maxLtvPercent)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[#64748b]">Hạn mức hiệu lực</span>
+                      <span className="font-bold text-[#111827]">
+                        {formatCurrencyVnd(productMaxAmount)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[#64748b]">Khoảng vay</span>
+                      <span className="font-bold text-[#111827]">
+                        {formatCurrencyVnd(product.minLoanAmount)} -{" "}
+                        {formatCurrencyVnd(productMaxAmount)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[#64748b]">Kỳ hạn</span>
+                      <span className="font-bold text-[#111827]">
+                        {product.tenor || selectedTerm || "-"} tháng
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 rounded-2xl bg-[#009b0f] p-6 text-white">
+            <h3 className="text-xl font-bold">Tóm tắt khoản vay</h3>
+
+            <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-4">
+              <div>
+                <p className="text-sm text-white/80">Gói vay</p>
+                <p className="mt-2 text-lg font-bold">
+                  {selectedProduct?.productName ||
+                    selectedProduct?.productCode ||
+                    "-"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm text-white/80">Số tiền đề xuất</p>
+                <p className="mt-2 text-lg font-bold">
+                  {formatCurrencyVnd(selectedDisplayAmount)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm text-white/80">Lãi suất</p>
+                <p className="mt-2 text-lg font-bold">
+                  {selectedInterestRate
+                    ? `${selectedInterestRate.toLocaleString("vi-VN")}%/tháng`
+                    : "-"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm text-white/80">Kỳ hạn</p>
+
+                <select
+                  value={selectedTerm || selectedTenor}
+                  onChange={(event) => onSelectTerm(event.target.value)}
+                  className="mt-2 h-10 w-full rounded-lg border border-white/30 bg-[#0ab02a] px-3 text-sm font-bold text-white outline-none"
+                >
+                  {termOptions.length > 0 ? (
+                    termOptions.map((term) => (
+                      <option
+                        key={term.value}
+                        value={term.value}
+                        className="text-[#111827]"
+                      >
+                        {term.label}
+                      </option>
+                    ))
+                  ) : (
+                    <option value={selectedTerm} className="text-[#111827]">
+                      {selectedTerm || "-"} tháng
+                    </option>
+                  )}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-3">
+              <div>
+                <p className="text-sm text-white/80">Gốc hàng tháng</p>
+                <p className="mt-2 text-lg font-bold">
+                  {formatCurrencyVnd(selectedProduct?.principalPerMonth)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm text-white/80">Lãi hàng tháng</p>
+                <p className="mt-2 text-lg font-bold">
+                  {formatCurrencyVnd(selectedProduct?.interestPerMonth)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm text-white/80">Tạm tính hàng tháng</p>
+                <p className="mt-2 text-lg font-bold">
+                  {formatCurrencyVnd(selectedProduct?.estimatedMonthlyPayment)}
+                </p>
               </div>
             </div>
           </div>
-
-          <div className="my-6 h-px bg-white/20" />
-
-          <div className="flex items-center justify-between gap-6">
-            <div>
-              <p className="text-base font-semibold text-white/80">
-                Dự kiến trả hàng tháng
-              </p>
-
-              {requestedLoanAmount > selectedProduct.effectiveMaxLoanAmount && (
-                <p className="mt-2 text-sm text-yellow-100">
-                  Số tiền mong muốn đang lớn hơn hạn mức hiệu lực, hệ thống đề
-                  xuất theo hạn mức tối đa phù hợp.
-                </p>
-              )}
-            </div>
-
-            <p className="text-3xl font-bold">
-              {formatCurrencyVnd(selectedProduct.estimatedMonthlyPayment)}
-            </p>
-          </div>
-        </div>
+        </>
       )}
     </div>
   );

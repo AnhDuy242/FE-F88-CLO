@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { format, isValid, parse } from "date-fns";
@@ -43,18 +43,12 @@ import {
 } from "@/features/customer-identify/schemas/customer-identify.schema";
 
 import { customerIdentifyApi } from "@/features/customer-identify/api/customer-identify.api";
+import { preliminaryInfoApi } from "@/features/preliminary-info/api/preliminary-info.api";
 
 import {
-  getStep1Identity,
-  saveStep1Identity,
+  useLoanOnboardingStore,
+  type Step1CustomerIdentifyState,
 } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
-
-import {
-  clearAllCccdCachedImages,
-  clearCccdCachedImage,
-  getCccdCachedImages,
-  setCccdCachedImage,
-} from "@/features/customer-identify/storage/cccd-image-cache";
 
 import type {
   CustomerIdentifyResponse,
@@ -71,73 +65,326 @@ const CURRENT_STEP = 1;
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
-const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ACCEPTED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/jpg",
+];
 
-const CUSTOMER_IDENTIFY_OCR_KEY = "customerIdentifyOcrData";
+const BIRTH_YEAR_START = 1900;
+const BIRTH_DEFAULT_YEAR = 2000;
+const DEFAULT_LOAN_APPLICATION_CONTEXT = {
+  applicationChannel: "PGD",
+  branchCode: "BR-001",
+  staffCode: "staff_001",
+};
+
+const MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => ({
+  value: index,
+  label: `Tháng ${index + 1}`,
+}));
 
 type OcrStatus = {
   type: "success" | "error";
   message: string;
 };
 
-function convertDdMmYyyyToIsoDate(value?: string) {
+function convertDateToApiFormat(value?: string) {
   if (!value) return "";
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return value;
+  const trimmedValue = value.trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
+    return trimmedValue;
   }
 
-  const parts = value.split("/");
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmedValue)) {
+    const [day, month, year] = trimmedValue.split("/");
 
-  if (parts.length !== 3) {
-    return value;
+    return `${year}-${month}-${day}`;
   }
 
-  const [day, month, year] = parts;
+  return trimmedValue;
+}
 
-  if (!day || !month || !year) {
-    return value;
+function getBirthYearOptions() {
+  const currentYear = new Date().getFullYear();
+
+  return Array.from(
+    { length: currentYear - BIRTH_YEAR_START + 1 },
+    (_, index) => currentYear - index,
+  );
+}
+
+function getInitialBirthCalendarMonth(value?: string) {
+  const apiDateValue = convertDateToApiFormat(value);
+
+  if (apiDateValue) {
+    const parsedDate = parse(apiDateValue, "yyyy-MM-dd", new Date());
+
+    if (isValid(parsedDate)) {
+      return parsedDate;
+    }
   }
 
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  return new Date(BIRTH_DEFAULT_YEAR, 0, 1);
+}
+
+function buildBirthCalendarMonth(year: number, month: number) {
+  return new Date(year, month, 1);
+}
+
+function buildImageMeta(file: File) {
+  return {
+    name: file.name,
+    size: file.size,
+    type: file.type,
+  };
+}
+
+function revokeImagePreview(image: UploadedImage | null) {
+  if (image?.previewUrl) {
+    URL.revokeObjectURL(image.previewUrl);
+  }
+}
+
+function getMatchedCustomerId(response: CustomerIdentifyResponse) {
+  return response.data?.matchedCustomer?.customerId || response.customerId || "";
+}
+
+function getMatchedCustomerCode(response: CustomerIdentifyResponse) {
+  return (
+    response.data?.customerCode ||
+    response.data?.matchedCustomer?.customerCode ||
+    ""
+  );
+}
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+
+    if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+  }
+
+  return fallback;
+}
+
+function getStringFromUnknown(source: unknown, keys: string[]) {
+  if (!source || typeof source !== "object") return "";
+
+  const record = source as Record<string, unknown>;
+
+  for (const key of keys) {
+    const value = record[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+
+    if (typeof value === "number") {
+      return String(value);
+    }
+  }
+
+  return "";
+}
+
+function buildCustomerSnapshot(
+  values: CustomerIdentifyFormValues,
+  response: CustomerIdentifyResponse | null,
+  step1CustomerIdentify: Step1CustomerIdentifyState,
+) {
+  const matchedCustomer = response?.data?.matchedCustomer || null;
+  const ocrData = step1CustomerIdentify.ocrData;
+
+  const fullName =
+    values.fullName.trim() ||
+    getStringFromUnknown(matchedCustomer, ["fullName", "customerName"]) ||
+    getStringFromUnknown(ocrData, ["fullName", "customerName"]) ||
+    step1CustomerIdentify.fullName;
+
+  const dateOfBirth =
+    convertDateToApiFormat(values.dateOfBirth) ||
+    convertDateToApiFormat(
+      getStringFromUnknown(matchedCustomer, ["dateOfBirth", "birthDate"]),
+    ) ||
+    convertDateToApiFormat(
+      getStringFromUnknown(ocrData, ["dateOfBirth", "dateOfBirthFormatted"]),
+    ) ||
+    step1CustomerIdentify.dateOfBirth;
+
+  const phoneNumber =
+    values.phoneNumber.trim() ||
+    getStringFromUnknown(matchedCustomer, ["phoneNumber"]) ||
+    getStringFromUnknown(ocrData, ["phoneNumber"]) ||
+    step1CustomerIdentify.phoneNumber;
+
+  const identityNumber =
+    values.identityNumber.trim() ||
+    getStringFromUnknown(matchedCustomer, [
+      "identifierNumber",
+      "identityNumber",
+      "cccdNumber",
+    ]) ||
+    getStringFromUnknown(ocrData, [
+      "identityNumber",
+      "identifierNumber",
+      "cccdNumber",
+    ]) ||
+    step1CustomerIdentify.identityNumber;
+
+  const customerCode =
+    response?.data?.customerCode ||
+    getStringFromUnknown(matchedCustomer, ["customerCode"]) ||
+    step1CustomerIdentify.customerCode;
+
+  const customerId =
+    getStringFromUnknown(matchedCustomer, ["customerId", "id"]) ||
+    response?.customerId ||
+    step1CustomerIdentify.customerId;
+
+  const customerStatus =
+    response?.data?.customerStatus ||
+    response?.data?.customerState ||
+    getStringFromUnknown(matchedCustomer, ["customerStatus", "status"]) ||
+    step1CustomerIdentify.customerStatus ||
+    response?.data?.lookupStatus ||
+    "";
+
+  const gender =
+    getStringFromUnknown(matchedCustomer, ["gender", "sex"]) ||
+    getStringFromUnknown(ocrData, ["gender", "sex"]) ||
+    step1CustomerIdentify.gender ||
+    step1CustomerIdentify.sex;
+
+  const address =
+    getStringFromUnknown(matchedCustomer, [
+      "address",
+      "permanentAddress",
+      "currentAddress",
+    ]) ||
+    getStringFromUnknown(ocrData, ["address", "permanentAddress"]) ||
+    String(step1CustomerIdentify.address || "");
+
+  const issueDate =
+    getStringFromUnknown(ocrData, ["issueDate", "issuedDate"]) ||
+    step1CustomerIdentify.issueDate;
+
+  const issuePlace =
+    getStringFromUnknown(ocrData, ["issuePlace", "issuedPlace"]) ||
+    String(step1CustomerIdentify.issuePlace || "");
+
+  return {
+    fullName,
+    dateOfBirth,
+    phoneNumber,
+    identityNumber,
+    cccdNumber: identityNumber,
+    gender,
+    address,
+    customerId,
+    customerCode,
+    customerStatus,
+    issueDate,
+    issuePlace,
+    lookupStatus: response?.data?.lookupStatus || step1CustomerIdentify.lookupStatus,
+    onboardingPermission:
+      response?.data?.onboardingPermission ||
+      step1CustomerIdentify.onboardingPermission,
+  };
 }
 
 function CustomerIdentifyScreen() {
   const navigate = useNavigate();
 
-  const step1Identity = getStep1Identity();
+  const {
+    applicationCode,
+    step1CustomerIdentify,
+    setApplicationCode,
+    setCurrentStep,
+    setStep1CustomerIdentify,
+    setSelectedCustomer,
+    prefillStep2FromStep1,
+    clearStep1CustomerIdentify,
+  } = useLoanOnboardingStore();
 
-  const cachedImages = getCccdCachedImages();
-
-  const [frontCccd, setFrontCccd] = useState<UploadedImage | null>(
-    cachedImages.front,
-  );
-
-  const [backCccd, setBackCccd] = useState<UploadedImage | null>(
-    cachedImages.back,
-  );
+  const [frontCccd, setFrontCccd] = useState<UploadedImage | null>(null);
+  const [backCccd, setBackCccd] = useState<UploadedImage | null>(null);
 
   const [uploadError, setUploadError] = useState("");
-  const [ocrStatus, setOcrStatus] = useState<OcrStatus | null>(null);
+
+  const [ocrStatus, setOcrStatus] = useState<OcrStatus | null>(
+    step1CustomerIdentify.ocrSuccessMessage
+      ? {
+          type: "success",
+          message: step1CustomerIdentify.ocrSuccessMessage,
+        }
+      : step1CustomerIdentify.ocrErrorMessage
+        ? {
+            type: "error",
+            message: step1CustomerIdentify.ocrErrorMessage,
+          }
+        : null,
+  );
 
   const [isCheckingOcr, setIsCheckingOcr] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [result, setResult] = useState<CustomerIdentifyResponse | null>(null);
+  const [result, setResult] = useState<CustomerIdentifyResponse | null>(
+    step1CustomerIdentify.customerCheckResult,
+  );
 
   const form = useForm<CustomerIdentifyFormValues>({
     resolver: zodResolver(customerIdentifySchema),
     defaultValues: {
-      fullName: step1Identity?.fullName || "",
-      dateOfBirth: step1Identity?.dateOfBirth || "",
-      phoneNumber: step1Identity?.phoneNumber || "",
-      identityNumber: step1Identity?.identityNumber || "",
+      fullName: step1CustomerIdentify.fullName || "",
+      dateOfBirth: convertDateToApiFormat(step1CustomerIdentify.dateOfBirth),
+      phoneNumber: step1CustomerIdentify.phoneNumber || "",
+      identityNumber: step1CustomerIdentify.identityNumber || "",
     },
   });
 
+  const [birthCalendarMonth, setBirthCalendarMonth] = useState<Date>(() =>
+    getInitialBirthCalendarMonth(step1CustomerIdentify.dateOfBirth),
+  );
+
+  useEffect(() => {
+    setCurrentStep(CURRENT_STEP);
+  }, [setCurrentStep]);
+
+  useEffect(() => {
+    const subscription = form.watch((values) => {
+      setStep1CustomerIdentify({
+        fullName: values.fullName || "",
+        dateOfBirth: convertDateToApiFormat(values.dateOfBirth),
+        phoneNumber: values.phoneNumber || "",
+        identityNumber: values.identityNumber || "",
+      });
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [form, setStep1CustomerIdentify]);
+
+  useEffect(() => {
+    return () => {
+      revokeImagePreview(frontCccd);
+      revokeImagePreview(backCccd);
+    };
+  }, [frontCccd, backCccd]);
+
   const validateImageFile = (file: File) => {
     if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-      return "Chỉ hỗ trợ ảnh JPG, PNG hoặc WEBP";
+      return "Chỉ hỗ trợ ảnh JPG, JPEG, PNG hoặc WEBP";
     }
 
     if (file.size > MAX_FILE_SIZE) {
@@ -147,22 +394,12 @@ function CustomerIdentifyScreen() {
     return "";
   };
 
-  const saveCurrentStep1FormToSession = (customerId?: string) => {
-    const currentValues = form.getValues();
-    const oldStep1Identity = getStep1Identity();
-
-    saveStep1Identity({
-      ...oldStep1Identity,
-      fullName: currentValues.fullName,
-      dateOfBirth: currentValues.dateOfBirth,
-      phoneNumber: currentValues.phoneNumber,
-      identityNumber: currentValues.identityNumber,
-      customerId: customerId || oldStep1Identity?.customerId,
-    });
-  };
-
   const applyOcrDataToForm = (ocrData: CustomerOcrData) => {
-    const formattedDateOfBirth = convertDdMmYyyyToIsoDate(ocrData.dateOfBirth);
+    const formattedDateOfBirth = convertDateToApiFormat(ocrData.dateOfBirth);
+
+    if (formattedDateOfBirth) {
+      setBirthCalendarMonth(getInitialBirthCalendarMonth(formattedDateOfBirth));
+    }
 
     form.setValue("fullName", ocrData.fullName || "", {
       shouldValidate: true,
@@ -179,42 +416,45 @@ function CustomerIdentifyScreen() {
       shouldDirty: true,
     });
 
-    const currentPhoneNumber = form.getValues("phoneNumber");
+    const currentPhoneNumber = form.getValues("phoneNumber") || "";
 
-    sessionStorage.setItem(
-      CUSTOMER_IDENTIFY_OCR_KEY,
-      JSON.stringify({
+    setStep1CustomerIdentify({
+      ocrData: {
         ...ocrData,
         dateOfBirthFormatted: formattedDateOfBirth,
         phoneNumber: currentPhoneNumber,
-        savedAt: new Date().toISOString(),
-      }),
-    );
-
-    const oldStep1Identity = getStep1Identity();
-
-    saveStep1Identity({
-      ...oldStep1Identity,
-      fullName: ocrData.fullName || oldStep1Identity?.fullName || "",
-      dateOfBirth: formattedDateOfBirth || oldStep1Identity?.dateOfBirth || "",
-      phoneNumber: currentPhoneNumber || oldStep1Identity?.phoneNumber || "",
-      identityNumber:
-        ocrData.identityNumber || oldStep1Identity?.identityNumber || "",
-      documentType: ocrData.documentType || oldStep1Identity?.documentType,
-      sex: ocrData.sex || oldStep1Identity?.sex,
-      nationality: ocrData.nationality || oldStep1Identity?.nationality,
-      issueDate: ocrData.issueDate || oldStep1Identity?.issueDate,
-      expiryDate: ocrData.expiryDate || oldStep1Identity?.expiryDate,
+      },
+      fullName: ocrData.fullName || "",
+      dateOfBirth: formattedDateOfBirth,
+      phoneNumber: currentPhoneNumber,
+      identityNumber: ocrData.identityNumber || "",
+      cccdNumber: ocrData.identityNumber || "",
+      documentType: ocrData.documentType || "",
+      sex: ocrData.sex || "",
+      gender: ocrData.sex || "",
+      nationality: ocrData.nationality || "",
+      address: getStringFromUnknown(ocrData, ["address", "permanentAddress"]),
+      issueDate: ocrData.issueDate || "",
+      issuePlace: getStringFromUnknown(ocrData, ["issuePlace", "issuedPlace"]),
+      expiryDate: ocrData.expiryDate || "",
     });
   };
 
   const handleCheckOcr = async () => {
-    if (!frontCccd || !backCccd) {
+    if (!frontCccd) {
+      const message =
+        "Vui lòng upload đầy đủ CCCD mặt trước và mặt sau trước khi kiểm tra OCR";
+
       setOcrStatus({
         type: "error",
-        message:
-          "Vui lòng upload đầy đủ CCCD mặt trước và mặt sau trước khi kiểm tra OCR",
+        message,
       });
+
+      setStep1CustomerIdentify({
+        ocrSuccessMessage: "",
+        ocrErrorMessage: message,
+      });
+
       return;
     }
 
@@ -222,37 +462,65 @@ function CustomerIdentifyScreen() {
     setUploadError("");
     setOcrStatus(null);
 
+    setStep1CustomerIdentify({
+      ocrSuccessMessage: "",
+      ocrErrorMessage: "",
+    });
+
     try {
       const response = await customerIdentifyApi.ocrCccd({
         cccdFrontImage: frontCccd.file,
-        cccdBackImage: backCccd.file,
+        cccdBackImage: backCccd?.file,
       });
 
       if (!response.success || !response.data) {
+        const message =
+          response.message || "OCR thất bại. Vui lòng kiểm tra lại ảnh CCCD";
+
         setOcrStatus({
           type: "error",
-          message:
-            response.message || "OCR thất bại. Vui lòng kiểm tra lại ảnh CCCD",
+          message,
         });
+
+        setStep1CustomerIdentify({
+          ocrSuccessMessage: "",
+          ocrErrorMessage: message,
+        });
+
         return;
       }
 
       applyOcrDataToForm(response.data);
 
+      const successMessage =
+        response.message === "OCR extraction completed"
+          ? "OCR thành công. Thông tin CCCD đã được tự động điền vào form."
+          : response.message ||
+            "OCR thành công. Thông tin đã được tự động điền vào form.";
+
       setOcrStatus({
         type: "success",
-        message:
-          response.message === "OCR extraction completed"
-            ? "OCR thành công. Thông tin CCCD đã được tự động điền vào form."
-            : response.message ||
-              "OCR thành công. Thông tin đã được tự động điền vào form.",
+        message: successMessage,
+      });
+
+      setStep1CustomerIdentify({
+        ocrSuccessMessage: successMessage,
+        ocrErrorMessage: "",
       });
     } catch (error) {
       console.error("OCR error:", error);
 
+      const message =
+        "OCR thất bại. Vui lòng kiểm tra lại ảnh hoặc thử lại sau.";
+
       setOcrStatus({
         type: "error",
-        message: "OCR thất bại. Vui lòng kiểm tra lại ảnh hoặc thử lại sau.",
+        message,
+      });
+
+      setStep1CustomerIdentify({
+        ocrSuccessMessage: "",
+        ocrErrorMessage: message,
       });
     } finally {
       setIsCheckingOcr(false);
@@ -260,7 +528,7 @@ function CustomerIdentifyScreen() {
   };
 
   const handleUploadImage = (
-    event: React.ChangeEvent<HTMLInputElement>,
+    event: ChangeEvent<HTMLInputElement>,
     side: UploadSide,
   ) => {
     const file = event.target.files?.[0];
@@ -271,16 +539,28 @@ function CustomerIdentifyScreen() {
 
     if (errorMessage) {
       setUploadError(errorMessage);
+
       setOcrStatus({
         type: "error",
         message: errorMessage,
       });
+
+      setStep1CustomerIdentify({
+        ocrSuccessMessage: "",
+        ocrErrorMessage: errorMessage,
+      });
+
       event.target.value = "";
       return;
     }
 
     setUploadError("");
     setOcrStatus(null);
+
+    setStep1CustomerIdentify({
+      ocrSuccessMessage: "",
+      ocrErrorMessage: "",
+    });
 
     const previewUrl = URL.createObjectURL(file);
 
@@ -290,15 +570,21 @@ function CustomerIdentifyScreen() {
     };
 
     if (side === "front") {
-      clearCccdCachedImage("front");
-      setCccdCachedImage("front", nextImage);
+      revokeImagePreview(frontCccd);
       setFrontCccd(nextImage);
+
+      setStep1CustomerIdentify({
+        frontImageMeta: buildImageMeta(file),
+      });
     }
 
     if (side === "back") {
-      clearCccdCachedImage("back");
-      setCccdCachedImage("back", nextImage);
+      revokeImagePreview(backCccd);
       setBackCccd(nextImage);
+
+      setStep1CustomerIdentify({
+        backImageMeta: buildImageMeta(file),
+      });
     }
 
     event.target.value = "";
@@ -307,14 +593,27 @@ function CustomerIdentifyScreen() {
   const handleRemoveImage = (side: UploadSide) => {
     setOcrStatus(null);
 
+    setStep1CustomerIdentify({
+      ocrSuccessMessage: "",
+      ocrErrorMessage: "",
+    });
+
     if (side === "front") {
-      clearCccdCachedImage("front");
+      revokeImagePreview(frontCccd);
       setFrontCccd(null);
+
+      setStep1CustomerIdentify({
+        frontImageMeta: null,
+      });
     }
 
     if (side === "back") {
-      clearCccdCachedImage("back");
+      revokeImagePreview(backCccd);
       setBackCccd(null);
+
+      setStep1CustomerIdentify({
+        backImageMeta: null,
+      });
     }
   };
 
@@ -326,81 +625,212 @@ function CustomerIdentifyScreen() {
       identityNumber: "",
     });
 
-    clearAllCccdCachedImages();
+    revokeImagePreview(frontCccd);
+    revokeImagePreview(backCccd);
 
     setFrontCccd(null);
     setBackCccd(null);
     setUploadError("");
     setOcrStatus(null);
     setResult(null);
+    setBirthCalendarMonth(new Date(BIRTH_DEFAULT_YEAR, 0, 1));
 
-    sessionStorage.removeItem(CUSTOMER_IDENTIFY_OCR_KEY);
-
-    saveStep1Identity({
-      fullName: "",
-      dateOfBirth: "",
-      phoneNumber: "",
-      identityNumber: "",
-    });
+    clearStep1CustomerIdentify();
   };
 
-  const handleSaveTemporaryData = () => {
-    saveCurrentStep1FormToSession();
+  const handleCreateNewProfile = async () => {
+    const isValidForm = await form.trigger();
 
-    setOcrStatus({
-      type: "success",
-      message: "Đã lưu tạm thông tin định danh trong phiên làm việc",
-    });
-  };
-
-  const handleSubmit = async (values: CustomerIdentifyFormValues) => {
-    if (!frontCccd || !backCccd) {
-      setUploadError("Vui lòng upload đầy đủ CCCD mặt trước và mặt sau");
-      setOcrStatus({
-        type: "error",
-        message: "Vui lòng upload đầy đủ CCCD mặt trước và mặt sau",
-      });
+    if (!isValidForm) {
       return;
     }
 
+    const values = form.getValues();
+
+    const formattedDateOfBirth = convertDateToApiFormat(values.dateOfBirth);
+    let customerSnapshot = buildCustomerSnapshot(
+      values,
+      result,
+      step1CustomerIdentify,
+    );
+    const existingCustomerCode =
+      (result ? getMatchedCustomerCode(result) : "") ||
+      customerSnapshot.customerCode ||
+      step1CustomerIdentify.customerCode;
+    const matchedCustomer = result?.data?.matchedCustomer || null;
+
+    setIsSubmitting(true);
+    setUploadError("");
+    setOcrStatus(null);
+
+    try {
+      let customerCode = existingCustomerCode;
+      let selectedCustomer: Record<string, unknown> | null = matchedCustomer
+        ? {
+            ...matchedCustomer,
+            customerCode,
+          }
+        : null;
+
+      if (!customerCode) {
+        const createCustomerResponse = await customerIdentifyApi.createCustomer({
+          fullName: values.fullName || "",
+          identifierNumber: values.identityNumber || "",
+          phoneNumber: values.phoneNumber || "",
+          dateOfBirth: formattedDateOfBirth,
+        });
+
+        if (!createCustomerResponse.success || !createCustomerResponse.data) {
+          throw new Error(
+            createCustomerResponse.message || "KhÃ´ng thá»ƒ táº¡o khÃ¡ch hÃ ng má»›i.",
+          );
+        }
+
+        customerCode = createCustomerResponse.data.customerCode;
+        customerSnapshot = {
+          ...customerSnapshot,
+          customerCode,
+          customerStatus: createCustomerResponse.data.status,
+        };
+        selectedCustomer = {
+          ...customerSnapshot,
+          ...createCustomerResponse.data,
+        };
+      }
+
+      let nextApplicationCode =
+        applicationCode ||
+        step1CustomerIdentify.applicationCode ||
+        step1CustomerIdentify.loanApplicationCode;
+
+      if (!nextApplicationCode) {
+        const draftResponse =
+          await preliminaryInfoApi.createLoanApplicationDraft({
+            customerCode,
+            ...DEFAULT_LOAN_APPLICATION_CONTEXT,
+          });
+
+        if (!draftResponse.success || !draftResponse.data?.applicationCode) {
+          throw new Error(
+            draftResponse.message || "KhÃ´ng thá»ƒ táº¡o há»“ sÆ¡ vay nhÃ¡p.",
+          );
+        }
+
+        nextApplicationCode = draftResponse.data.applicationCode;
+      }
+
+      setApplicationCode(nextApplicationCode);
+      setSelectedCustomer(
+        selectedCustomer
+          ? {
+              ...customerSnapshot,
+              ...selectedCustomer,
+            }
+          : customerSnapshot,
+      );
+
+      setStep1CustomerIdentify({
+        ...customerSnapshot,
+        fullName: customerSnapshot.fullName,
+        dateOfBirth: customerSnapshot.dateOfBirth || formattedDateOfBirth,
+        phoneNumber: customerSnapshot.phoneNumber,
+        identityNumber: customerSnapshot.identityNumber,
+        cccdNumber: customerSnapshot.cccdNumber,
+        customerId: customerSnapshot.customerId,
+        customerCode,
+        customerStatus: customerSnapshot.customerStatus,
+        customerCheckResult: result,
+        ocrData: step1CustomerIdentify.ocrData,
+        applicationCode: nextApplicationCode,
+        loanApplicationCode: nextApplicationCode,
+      });
+
+      prefillStep2FromStep1();
+
+      navigate({
+        to: "/loan/preliminary-info",
+      });
+    } catch (error) {
+      console.error("Create loan application draft error:", error);
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : "KhÃ´ng thá»ƒ táº¡o há»“ sÆ¡ vay. Vui lÃ²ng thá»­ láº¡i.";
+
+      setUploadError(message);
+      setOcrStatus({
+        type: "error",
+        message,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSubmit = async (values: CustomerIdentifyFormValues) => {
     setIsSubmitting(true);
     setUploadError("");
     setOcrStatus(null);
     setResult(null);
 
     try {
-      const response = await customerIdentifyApi.checkCustomer({
-        fullName: values.fullName,
-        dateOfBirth: values.dateOfBirth,
-        phoneNumber: values.phoneNumber,
-        identityNumber: values.identityNumber,
-        cccdFrontImage: frontCccd.file,
-        cccdBackImage: backCccd.file,
-      });
+      const lookupPayload = {
+        fullName: values.fullName || "",
+        dateOfBirth: convertDateToApiFormat(values.dateOfBirth),
+        identifierType: "CCCD",
+        identifierNumber: values.identityNumber || "",
+        phoneNumber: values.phoneNumber || "",
+      };
+
+      const response = await customerIdentifyApi.checkCustomer(lookupPayload);
 
       setResult(response);
 
-      const oldStep1Identity = getStep1Identity();
-
-      saveStep1Identity({
-        ...oldStep1Identity,
-        fullName: values.fullName,
-        dateOfBirth: values.dateOfBirth,
-        phoneNumber: values.phoneNumber,
-        identityNumber: values.identityNumber,
-        customerId: response.customerId,
+      setStep1CustomerIdentify({
+        fullName: lookupPayload.fullName,
+        dateOfBirth: lookupPayload.dateOfBirth,
+        phoneNumber: lookupPayload.phoneNumber,
+        identityNumber: lookupPayload.identifierNumber,
+        cccdNumber: lookupPayload.identifierNumber,
+        customerCheckResult: response,
+        customerId: String(getMatchedCustomerId(response) || ""),
+        customerCode: getMatchedCustomerCode(response),
+        customerStatus:
+          response.data?.customerStatus ||
+          response.data?.customerState ||
+          response.data?.lookupStatus ||
+          "",
+        lookupStatus: response.data?.lookupStatus || "",
+        onboardingPermission: response.data?.onboardingPermission || "",
       });
 
-      navigate({
-        to: "/loan/preliminary-info",
-      });
+      setSelectedCustomer(
+        response.data?.matchedCustomer
+          ? {
+              ...response.data.matchedCustomer,
+              customerCode: getMatchedCustomerCode(response),
+            }
+          : null,
+      );
     } catch (error) {
-      console.error(error);
+      console.error("Customer lookup error:", error);
 
-      setUploadError("Có lỗi xảy ra khi kiểm tra khách hàng");
+      const message = getApiErrorMessage(
+        error,
+        "Có lỗi xảy ra khi tra cứu khách hàng",
+      );
+
+      setUploadError(message);
+
       setOcrStatus({
         type: "error",
-        message: "Có lỗi xảy ra khi kiểm tra khách hàng",
+        message,
+      });
+
+      setStep1CustomerIdentify({
+        ocrSuccessMessage: "",
+        ocrErrorMessage: message,
       });
     } finally {
       setIsSubmitting(false);
@@ -462,14 +892,19 @@ function CustomerIdentifyScreen() {
                       control={form.control}
                       name="dateOfBirth"
                       render={({ field }) => {
-                        const parsedDate = field.value
-                          ? parse(field.value, "yyyy-MM-dd", new Date())
+                        const apiDateValue = convertDateToApiFormat(field.value);
+
+                        const parsedDate = apiDateValue
+                          ? parse(apiDateValue, "yyyy-MM-dd", new Date())
                           : undefined;
 
                         const selectedDate =
                           parsedDate && isValid(parsedDate)
                             ? parsedDate
                             : undefined;
+
+                        const currentMonth = birthCalendarMonth.getMonth();
+                        const currentYear = birthCalendarMonth.getFullYear();
 
                         return (
                           <FormItem>
@@ -507,21 +942,89 @@ function CustomerIdentifyScreen() {
                                 sideOffset={8}
                                 className="z-[9999] w-auto rounded-xl border border-[#dbe5dd] bg-white p-0 shadow-xl"
                               >
-                                <div className="rounded-xl bg-white p-3">
-                                  <Calendar
-                                    mode="single"
-                                    selected={selectedDate}
-                                    onSelect={(date) => {
-                                      field.onChange(
-                                        date ? format(date, "yyyy-MM-dd") : "",
-                                      );
-                                    }}
-                                    disabled={(date) =>
-                                      date > new Date() ||
-                                      date < new Date("1900-01-01")
-                                    }
-                                    className="rounded-lg bg-white"
-                                  />
+                                <div className="rounded-xl bg-white">
+                                  <div className="flex items-center gap-3 border-b border-[#e5e7eb] px-3 py-3">
+                                    <select
+                                      value={currentMonth}
+                                      onChange={(event) => {
+                                        const nextMonth = Number(
+                                          event.target.value,
+                                        );
+
+                                        setBirthCalendarMonth(
+                                          buildBirthCalendarMonth(
+                                            currentYear,
+                                            nextMonth,
+                                          ),
+                                        );
+                                      }}
+                                      className="h-9 rounded-lg border border-[#dbe5dd] bg-white px-3 text-sm font-medium text-[#111827] outline-none focus:border-[#009b3a]"
+                                    >
+                                      {MONTH_OPTIONS.map((month) => (
+                                        <option
+                                          key={month.value}
+                                          value={month.value}
+                                        >
+                                          {month.label}
+                                        </option>
+                                      ))}
+                                    </select>
+
+                                    <select
+                                      value={currentYear}
+                                      onChange={(event) => {
+                                        const nextYear = Number(
+                                          event.target.value,
+                                        );
+
+                                        setBirthCalendarMonth(
+                                          buildBirthCalendarMonth(
+                                            nextYear,
+                                            currentMonth,
+                                          ),
+                                        );
+                                      }}
+                                      className="h-9 rounded-lg border border-[#dbe5dd] bg-white px-3 text-sm font-medium text-[#111827] outline-none focus:border-[#009b3a]"
+                                    >
+                                      {getBirthYearOptions().map((year) => (
+                                        <option key={year} value={year}>
+                                          {year}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  <div className="p-3">
+                                    <Calendar
+                                      mode="single"
+                                      month={birthCalendarMonth}
+                                      onMonthChange={setBirthCalendarMonth}
+                                      selected={selectedDate}
+                                      onSelect={(date) => {
+                                        if (!date) {
+                                          field.onChange("");
+                                          return;
+                                        }
+
+                                        const nextDate = format(
+                                          date,
+                                          "yyyy-MM-dd",
+                                        );
+
+                                        field.onChange(nextDate);
+                                        setBirthCalendarMonth(date);
+
+                                        setStep1CustomerIdentify({
+                                          dateOfBirth: nextDate,
+                                        });
+                                      }}
+                                      disabled={(date) =>
+                                        date > new Date() ||
+                                        date < new Date("1900-01-01")
+                                      }
+                                      className="rounded-lg bg-white"
+                                    />
+                                  </div>
                                 </div>
                               </PopoverContent>
                             </Popover>
@@ -638,13 +1141,14 @@ function CustomerIdentifyScreen() {
                         onRemove={handleRemoveImage}
                       />
                     </div>
+
                     <div className="mt-4 flex items-center justify-end gap-4">
                       <Button
                         type="button"
                         variant="outline"
                         onClick={handleCheckOcr}
                         disabled={isCheckingOcr}
-                        className="shrink-0 bg-green-600 border-[#009b3a] text-[white] hover:bg-[#ecfdf3] hover:text-[#009b3a]"
+                        className="shrink-0 border-[#009b3a] bg-green-600 text-white hover:bg-[#ecfdf3] hover:text-[#009b3a]"
                       >
                         <Refresh
                           size={18}
@@ -655,6 +1159,7 @@ function CustomerIdentifyScreen() {
                         {isCheckingOcr ? "Đang OCR..." : "Kiểm tra OCR"}
                       </Button>
                     </div>
+
                     {ocrStatus && (
                       <div
                         className={
@@ -690,39 +1195,21 @@ function CustomerIdentifyScreen() {
                       Xóa thông tin
                     </Button>
 
-                    <div className="flex items-center gap-4">
-                      {/* <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleSaveTemporaryData}
-                        className="min-w-[120px]"
-                      >
-                        Lưu tạm
-                      </Button> */}
-
-                      {/* <Button
-                        type="button"
-                        variant="outline"
-                        className="min-w-[96px]"
-                      >
-                        Hủy
-                      </Button> */}
-
-                      <Button
-                        type="submit"
-                        disabled={isSubmitting}
-                        className="min-w-[170px] bg-[#009b3a] text-white hover:bg-[#008232]"
-                      >
-                        {isSubmitting
-                          ? "Đang tra cứu..."
-                          : "Tra cứu khách hàng"}
-                      </Button>
-                    </div>
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="min-w-[170px] bg-[#009b3a] text-white hover:bg-[#008232]"
+                    >
+                      {isSubmitting ? "Đang tra cứu..." : "Tra cứu khách hàng"}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
 
-              <ResultCard result={result} />
+              <ResultCard
+                result={result}
+                onCreateNewProfile={handleCreateNewProfile}
+              />
             </form>
           </Form>
         </section>
@@ -733,9 +1220,13 @@ function CustomerIdentifyScreen() {
 
 type ResultCardProps = {
   result: CustomerIdentifyResponse | null;
+  onCreateNewProfile: () => void;
 };
 
-function ResultCard({ result }: ResultCardProps) {
+function ResultCard({ result, onCreateNewProfile }: ResultCardProps) {
+  const found = Boolean(result?.data?.found);
+  const matchedCustomer = result?.data?.matchedCustomer;
+
   return (
     <Card className="rounded-xl border border-[#dbe5dd] bg-white shadow-none">
       <CardContent className="min-h-[250px] p-6">
@@ -762,40 +1253,99 @@ function ResultCard({ result }: ResultCardProps) {
               Kết quả sẽ hiển thị tại đây sau khi tra cứu thông tin khách hàng.
             </p>
           </div>
-        ) : (
+        ) : found ? (
           <div className="rounded-xl border bg-[#fbfffc] p-5">
             <p className="text-sm text-[#6b7280]">Trạng thái khách hàng</p>
 
             <h3 className="mt-1 text-lg font-bold text-[#111827]">
-              {result.isExistingCustomer
-                ? "Khách hàng đã tồn tại trong hệ thống"
-                : "Khách hàng mới"}
+              Tìm thấy khách hàng trong hệ thống
             </h3>
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="rounded-lg border bg-white p-4">
-                <p className="text-xs text-[#6b7280]">Blacklist</p>
+                <p className="text-xs text-[#6b7280]">Mã khách hàng</p>
 
                 <p className="mt-1 font-semibold text-[#111827]">
-                  {result.isBlacklisted ? "Có" : "Không"}
+                  {result.data?.customerCode ||
+                    matchedCustomer?.customerCode ||
+                    "Chưa có"}
                 </p>
               </div>
 
               <div className="rounded-lg border bg-white p-4">
-                <p className="text-xs text-[#6b7280]">Mức độ rủi ro</p>
+                <p className="text-xs text-[#6b7280]">Họ và tên</p>
 
                 <p className="mt-1 font-semibold text-[#111827]">
-                  {result.riskLevel || "Chưa xác định"}
+                  {matchedCustomer?.fullName || "Chưa có"}
                 </p>
               </div>
 
               <div className="rounded-lg border bg-white p-4">
-                <p className="text-xs text-[#6b7280]">Thông báo</p>
+                <p className="text-xs text-[#6b7280]">Trạng thái</p>
 
                 <p className="mt-1 font-semibold text-[#111827]">
-                  {result.message}
+                  {result.data?.customerStatus ||
+                    result.data?.customerState ||
+                    result.data?.lookupStatus ||
+                    "Chưa xác định"}
                 </p>
               </div>
+
+              <div className="rounded-lg border bg-white p-4">
+                <p className="text-xs text-[#6b7280]">Số CCCD</p>
+
+                <p className="mt-1 font-semibold text-[#111827]">
+                  {matchedCustomer?.identifierNumber || "Chưa có"}
+                </p>
+              </div>
+
+              <div className="rounded-lg border bg-white p-4">
+                <p className="text-xs text-[#6b7280]">Số điện thoại</p>
+
+                <p className="mt-1 font-semibold text-[#111827]">
+                  {matchedCustomer?.phoneNumber || "Chưa có"}
+                </p>
+              </div>
+
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <Button
+                type="button"
+                onClick={onCreateNewProfile}
+                className="bg-[#009b3a] text-white hover:bg-[#008232]"
+              >
+                Tiếp tục tạo hồ sơ vay
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-orange-200 bg-orange-50 p-5">
+            <p className="text-sm text-orange-700">Kết quả tra cứu</p>
+
+            <h3 className="mt-1 text-lg font-bold text-[#111827]">
+              Không tìm thấy khách hàng
+            </h3>
+
+            <p className="mt-2 text-sm text-[#6b7280]">
+              Không có khách hàng nào khớp với thông tin đã nhập. Có thể tạo hồ
+              sơ mới cho khách hàng này.
+            </p>
+
+            {result.message && (
+              <p className="mt-2 text-sm font-medium text-[#6b7280]">
+                {result.message}
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end">
+              <Button
+                type="button"
+                onClick={onCreateNewProfile}
+                className="bg-[#009b3a] text-white hover:bg-[#008232]"
+              >
+                Tạo hồ sơ mới
+              </Button>
             </div>
           </div>
         )}

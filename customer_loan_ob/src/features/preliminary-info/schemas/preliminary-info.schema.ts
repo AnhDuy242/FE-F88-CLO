@@ -18,11 +18,11 @@ const isPositiveNumberString = (value: string) => {
 export const preliminaryInfoSchema = z.object({
   fullName: z.string().min(1, "Vui lòng nhập họ và tên"),
 
-  identityNumber: z.string().optional(),
+  identityNumber: z.string().min(1, "Vui lòng nhập số giấy tờ"),
 
   phoneNumber: z
     .string()
-    .optional()
+    .min(1, "Vui lòng nhập số điện thoại")
     .refine(
       (value) => !value || /^[0-9]+$/.test(value),
       "Số điện thoại chỉ được nhập số",
@@ -32,21 +32,21 @@ export const preliminaryInfoSchema = z.object({
       "Số điện thoại phải có từ 9 đến 11 số",
     ),
 
-  dateOfBirth: z.string().optional(),
+  dateOfBirth: z.string().min(1, "Vui lòng nhập ngày sinh"),
 
   gender: z.string().min(1, "Vui lòng chọn giới tính"),
 
-  job: z.string().optional(),
+  job: z.string().min(1, "Vui lòng chọn nghề nghiệp"),
 
   monthlyIncome: z
     .string()
-    .optional()
+    .min(1, "Vui lòng nhập thu nhập hàng tháng")
     .refine(
       (value) => !value || isPositiveNumberString(value),
       "Thu nhập hàng tháng phải là số lớn hơn 0",
     ),
 
-  loanPurpose: z.string().optional(),
+  loanPurpose: z.string().min(1, "Vui lòng chọn mục đích vay"),
 
   desiredLoanAmount: z
     .string()

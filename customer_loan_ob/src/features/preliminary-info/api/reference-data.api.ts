@@ -1,82 +1,78 @@
-import { axiosClient } from "@/lib/axios-client";
 import { API_ENDPOINTS } from "@/constants/api-endpoints";
-
-import type {
-  ReferenceDataItem,
-  ReferenceDataResponse,
-} from "../types/reference-data.type";
+import { axiosClient } from "@/lib/axios-client";
 
 export const referenceDataApi = {
-  getAssetTypes: async (): Promise<ReferenceDataResponse> => {
-    return axiosClient.get<ReferenceDataResponse, ReferenceDataResponse>(
-      API_ENDPOINTS.referenceData.assetTypes,
-    );
+  getAssetTypes: async () => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.assetTypes);
   },
 
-  getGenders: async (): Promise<ReferenceDataResponse> => {
-    return axiosClient.get<ReferenceDataResponse, ReferenceDataResponse>(
-      API_ENDPOINTS.referenceData.genders,
-    );
+  getGenders: async () => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.genders);
   },
 
-  getOccupations: async (): Promise<ReferenceDataResponse> => {
-    return axiosClient.get<ReferenceDataResponse, ReferenceDataResponse>(
-      API_ENDPOINTS.referenceData.occupations,
-    );
+  getMaritalStatuses: async () => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.maritalStatuses);
   },
 
-  getLoanPurposes: async (): Promise<ReferenceDataResponse> => {
-    return axiosClient.get<ReferenceDataResponse, ReferenceDataResponse>(
-      API_ENDPOINTS.referenceData.loanPurposes,
-    );
+  getOccupations: async () => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.occupations);
   },
 
-  getVehicleBrands: async (params: {
-    assetType: string;
-  }): Promise<ReferenceDataResponse> => {
-    return axiosClient.get<ReferenceDataResponse, ReferenceDataResponse>(
-      API_ENDPOINTS.referenceData.vehicleBrands,
-      { params },
-    );
+  getIncomeSources: async () => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.incomeSources);
   },
 
-  getVehicleModels: async (params: {
-    brandCode: string;
-  }): Promise<ReferenceDataResponse> => {
-    return axiosClient.get<ReferenceDataResponse, ReferenceDataResponse>(
-      API_ENDPOINTS.referenceData.vehicleModels,
-      { params },
-    );
+  getBanks: async () => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.banks);
   },
 
-  getVehicleVersions: async (params: {
-    modelCode: string;
-  }): Promise<ReferenceDataResponse> => {
-    return axiosClient.get<ReferenceDataResponse, ReferenceDataResponse>(
-      API_ENDPOINTS.referenceData.vehicleVersions,
-      { params },
-    );
+  getReferencePersonRelationships: async () => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.referencePersonRelationships);
+  },
+
+  getLoanPurposes: async () => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.loanPurposes);
+  },
+
+  getLoanTerms: async () => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.loanTerms);
+  },
+
+  getVehicleBrands: async (params: { assetType: "MOTORBIKE" | "CAR" }) => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.vehicleBrands, {
+      params,
+    });
+  },
+
+  getVehicleModels: async (params: { brandCode: string }) => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.vehicleModels, {
+      params,
+    });
+  },
+
+  getVehicleVersions: async (params: { modelCode: string }) => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.vehicleVersions, {
+      params,
+    });
   },
 
   getManufactureYears: async (params: {
     modelCode: string;
     versionCode: string;
-  }): Promise<ReferenceDataResponse> => {
-    return axiosClient.get<ReferenceDataResponse, ReferenceDataResponse>(
-      API_ENDPOINTS.referenceData.manufactureYears,
-      { params },
-    );
+  }) => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.manufactureYears, {
+      params,
+    });
   },
 
   getVehicleColors: async (params: {
     modelCode: string;
     versionCode: string;
     manufactureYear: number;
-  }): Promise<ReferenceDataResponse> => {
-    return axiosClient.get<ReferenceDataResponse, ReferenceDataResponse>(
-      API_ENDPOINTS.referenceData.vehicleColors,
-      { params },
-    );
+  }) => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.vehicleColors, {
+      params,
+    });
   },
 
   getVehicleVariant: async (params: {
@@ -84,17 +80,15 @@ export const referenceDataApi = {
     versionCode: string;
     manufactureYear: number;
     colorCode: string;
-  }): Promise<ReferenceDataResponse<ReferenceDataItem>> => {
-    return axiosClient.get<
-      ReferenceDataResponse<ReferenceDataItem>,
-      ReferenceDataResponse<ReferenceDataItem>
-    >(API_ENDPOINTS.referenceData.vehicleVariant, { params });
+  }) => {
+    return axiosClient.get(API_ENDPOINTS.referenceData.vehicleVariant, {
+      params,
+    });
   },
 
-  getValuationDeductionFactors:
-    async (): Promise<ReferenceDataResponse> => {
-      return axiosClient.get<ReferenceDataResponse, ReferenceDataResponse>(
-        API_ENDPOINTS.referenceData.valuationDeductionFactors,
-      );
-    },
+  getValuationDeductionFactors: async () => {
+    return axiosClient.get(
+      API_ENDPOINTS.referenceData.valuationDeductionFactors,
+    );
+  },
 };

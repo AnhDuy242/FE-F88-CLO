@@ -1,8 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  Bell,
-  ChevronDown,
-  MapPin,
   Phone,
   Search,
   UserCircle,

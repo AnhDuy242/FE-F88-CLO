@@ -35,7 +35,6 @@ export type AssetValuationPayload = {
     vehicleVariant: string;
     manufactureYear: number;
     vehicleColor: string;
-    marketValue: number;
   };
   deductionItems: AssetValuationDeductionItem[];
 };
@@ -56,6 +55,7 @@ export type AssetValuationPreviewData = {
   ltvRatio?: number;
   loanableValue?: number;
   valuationState?: string;
+  appliedDeductionTypes?: string[];
   appliedDeductions?: AppliedDeduction[];
 
   currencyCode?: string;

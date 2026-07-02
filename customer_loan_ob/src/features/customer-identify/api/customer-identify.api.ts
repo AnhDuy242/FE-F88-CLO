@@ -1,45 +1,121 @@
-import { axiosClient } from "@/lib/axios-client";
 import { API_ENDPOINTS } from "@/constants/api-endpoints";
+import { axiosClient } from "@/lib/axios-client";
 
 import type {
-  CustomerIdentifyPayload,
+  CreateCustomerPayload,
+  CreateCustomerResponse,
+  CustomerIdentifyLookupPayload,
   CustomerIdentifyResponse,
-  CustomerOcrPayload,
-  CustomerOcrResponse,
-} from "../types/customer-identify.type";
+  CustomerOcrData,
+} from "@/features/customer-identify/types/customer-identify.type";
+
+export type CustomerOcrResponse = {
+  success: boolean;
+  message: string;
+  data: CustomerOcrData | null;
+  errorCode?: string | null;
+  timestamp?: string;
+};
+
+export type OcrCccdPayload = {
+  cccdFrontImage: File;
+  cccdBackImage?: File;
+};
+
+function normalizeJfifFile(file: File, fallbackName: string) {
+  const fileName = file.name || fallbackName;
+  const lowerFileName = fileName.toLowerCase();
+
+  if (file.type === "image/jfif" || lowerFileName.endsWith(".jfif")) {
+    const normalizedName = lowerFileName.endsWith(".jfif")
+      ? fileName.replace(/\.jfif$/i, ".jpg")
+      : `${fileName}.jpg`;
+
+    return new File([file], normalizedName, {
+      type: "image/jpeg",
+      lastModified: file.lastModified || Date.now(),
+    });
+  }
+
+  return file;
+}
+
+function buildOcrFormData(payload: OcrCccdPayload) {
+  const formData = new FormData();
+
+  const frontImage = normalizeJfifFile(
+    payload.cccdFrontImage,
+    "cccd-front.jpg",
+  );
+
+  /**
+   * Key chính theo BE đang dùng.
+   */
+  formData.append("frontImage", frontImage, frontImage.name);
+
+  if (payload.cccdBackImage) {
+    const backImage = normalizeJfifFile(
+      payload.cccdBackImage,
+      "cccd-back.jpg",
+    );
+
+    formData.append("backImage", backImage, backImage.name);
+  }
+
+  return formData;
+}
+
+function buildCustomerLookupPayload(payload: CustomerIdentifyLookupPayload) {
+  return {
+    fullName: payload.fullName.trim(),
+    dateOfBirth: payload.dateOfBirth.trim(),
+    identifierType: payload.identifierType.trim(),
+    identifierNumber: payload.identifierNumber.trim(),
+    phoneNumber: payload.phoneNumber.trim(),
+  };
+}
 
 export const customerIdentifyApi = {
-  ocrCccd: async (
-    payload: CustomerOcrPayload
-  ): Promise<CustomerOcrResponse> => {
-    const formData = new FormData();
+  ocrCccd: async (payload: OcrCccdPayload): Promise<CustomerOcrResponse> => {
+    const formData = buildOcrFormData(payload);
 
-    formData.append("frontImage", payload.cccdFrontImage);
-    formData.append("backImage", payload.cccdBackImage);
-
-    return axiosClient.post<CustomerOcrResponse, CustomerOcrResponse, FormData>(
-      API_ENDPOINTS.customerIdentify.ocrExtract,
-      formData
+    /**
+     * Không set Content-Type thủ công ở đây.
+     * Browser/Axios sẽ tự set multipart/form-data kèm boundary.
+     */
+    return axiosClient.post<CustomerOcrResponse, CustomerOcrResponse>(
+      API_ENDPOINTS.customerIdentify.ocrCccd,
+      formData,
     );
   },
 
   checkCustomer: async (
-    payload: CustomerIdentifyPayload
+    payload: CustomerIdentifyLookupPayload,
   ): Promise<CustomerIdentifyResponse> => {
-    const formData = new FormData();
+    return axiosClient.post<CustomerIdentifyResponse, CustomerIdentifyResponse>(
+      API_ENDPOINTS.customerIdentify.checkCustomer,
+      buildCustomerLookupPayload(payload),
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      },
+    );
+  },
 
-    formData.append("fullName", payload.fullName);
-    formData.append("dateOfBirth", payload.dateOfBirth);
-    formData.append("phoneNumber", payload.phoneNumber || "");
-    formData.append("identityNumber", payload.identityNumber);
-
-    formData.append("frontImage", payload.cccdFrontImage);
-    formData.append("backImage", payload.cccdBackImage);
-
-    return axiosClient.post<
-      CustomerIdentifyResponse,
-      CustomerIdentifyResponse,
-      FormData
-    >(API_ENDPOINTS.customerIdentify.checkCustomer, formData);
+  createCustomer: async (
+    payload: CreateCustomerPayload,
+  ): Promise<CreateCustomerResponse> => {
+    return axiosClient.post<CreateCustomerResponse, CreateCustomerResponse>(
+      API_ENDPOINTS.customerIdentify.createCustomer,
+      payload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      },
+    );
   },
 };

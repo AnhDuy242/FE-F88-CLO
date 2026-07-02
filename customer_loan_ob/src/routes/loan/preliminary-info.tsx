@@ -11,9 +11,8 @@ import { CustomerIdentifyBreadcrumb } from "@/features/customer-identify/compone
 import { LoanOnboardingStepper } from "@/features/customer-identify/components/LoanOnboardingStepper";
 
 import {
-  getStep1Identity,
-  getStep2PreliminaryInfo,
   saveStep2PreliminaryInfo,
+  useLoanOnboardingStore,
 } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
 
 import { preliminaryInfoApi } from "@/features/preliminary-info/api/preliminary-info.api";
@@ -21,7 +20,6 @@ import { assetValuationApi } from "@/features/preliminary-info/api/asset-valuati
 import { referenceDataApi } from "@/features/preliminary-info/api/reference-data.api";
 import { loanProductRecommendationApi } from "@/features/preliminary-info/api/loan-product-recommendation.api";
 
-import { AppraisalSummary } from "@/features/preliminary-info/components/AppraisalSummary";
 import { BottomActions } from "@/features/preliminary-info/components/BottomActions";
 import { DateOfBirthField } from "@/features/preliminary-info/components/DateOfBirthField";
 import { DeductionList } from "@/features/preliminary-info/components/DeductionList";
@@ -39,14 +37,13 @@ import type {
   DeductionItem,
   LoanPackage,
   LoanPackageId,
-  PreliminaryInfoPayload,
+  SaveLoanApplicationDraftPayload,
 } from "@/features/preliminary-info/types/preliminary-info.type";
 
 import type {
   AssetTypeApiValue,
   AssetValuationMarketPriceResponse,
   AssetValuationPayload,
-  AssetValuationPreviewData,
   AssetValuationResponse,
 } from "@/features/preliminary-info/types/asset-valuation.type";
 
@@ -96,6 +93,16 @@ const loanPackages: LoanPackage[] = [
   },
 ];
 
+const DEFAULT_LOAN_PACKAGE_ID: LoanPackageId = "promotion";
+
+function normalizeLoanPackageId(value?: string): LoanPackageId {
+  if (value === "standard" || value === "promotion" || value === "vip") {
+    return value;
+  }
+
+  return DEFAULT_LOAN_PACKAGE_ID;
+}
+
 function getDigitsOnly(value?: string) {
   return (value || "").replace(/\D/g, "");
 }
@@ -106,6 +113,12 @@ function formatCurrencyVndForDefaultValue(value?: string) {
   if (!digitsOnly) return "";
 
   return `${digitsOnly.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} Đ`;
+}
+
+function formatCurrencyVnd(value?: number) {
+  const safeValue = Number(value || 0);
+
+  return `${Math.max(safeValue, 0).toLocaleString("vi-VN")} đ`;
 }
 
 function getStringFromUnknownObject(source: unknown, keys: string[]) {
@@ -119,39 +132,37 @@ function getStringFromUnknownObject(source: unknown, keys: string[]) {
     if (typeof value === "string" && value.trim()) {
       return value.trim();
     }
+
+    if (typeof value === "number") {
+      return String(value);
+    }
   }
 
   return "";
 }
 
-function getApplicationCodeFromStorage(step1: unknown, step2: unknown) {
-  const fromStepData =
-    getStringFromUnknownObject(step2, [
-      "applicationCode",
-      "loanApplicationCode",
-      "loanApplicationId",
-    ]) ||
-    getStringFromUnknownObject(step1, [
-      "applicationCode",
-      "loanApplicationCode",
-      "loanApplicationId",
-    ]);
+function getNumberFromUnknownObject(source: unknown, keys: string[]) {
+  if (!source || typeof source !== "object") return 0;
 
-  if (fromStepData) return fromStepData;
+  const record = source as Record<string, unknown>;
 
-  const storageKeys = [
-    "applicationCode",
-    "loanApplicationCode",
-    "currentApplicationCode",
-  ];
+  for (const key of keys) {
+    const value = record[key];
 
-  for (const key of storageKeys) {
-    const value = sessionStorage.getItem(key);
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
 
-    if (value) return value;
+    if (typeof value === "string" && value.trim()) {
+      const normalizedValue = Number(value.replace(/[^\d.-]/g, ""));
+
+      if (Number.isFinite(normalizedValue)) {
+        return normalizedValue;
+      }
+    }
   }
 
-  return "";
+  return 0;
 }
 
 function getScoreGradeFromStorage(step1: unknown, step2: unknown) {
@@ -210,7 +221,7 @@ function normalizeGender(value?: string) {
     return "OTHER";
   }
 
-  return value;
+  return normalizedValue;
 }
 
 function normalizeAssetType(value?: string) {
@@ -235,7 +246,7 @@ function normalizeAssetType(value?: string) {
     return "MOTORBIKE";
   }
 
-  return value;
+  return normalizedValue;
 }
 
 function mapAssetTypeToApiValue(assetType?: string): AssetTypeApiValue {
@@ -439,17 +450,24 @@ function mapDeductionItems(response: unknown): DeductionItem[] {
 
 function PreliminaryInfoScreen() {
   const navigate = useNavigate();
-
-  const step1Identity = getStep1Identity();
-  const step2Session = getStep2PreliminaryInfo();
+  const storeApplicationCode = useLoanOnboardingStore(
+    (state) => state.applicationCode,
+  );
+  const setApplicationCode = useLoanOnboardingStore(
+    (state) => state.setApplicationCode,
+  );
+  const setSelectedLoanProduct = useLoanOnboardingStore(
+    (state) => state.setSelectedLoanProduct,
+  );
+  const step1Identity = useLoanOnboardingStore(
+    (state) => state.step1CustomerIdentify,
+  );
+  const step2Session = useLoanOnboardingStore(
+    (state) => state.step2PreliminaryInfo,
+  );
 
   const step1StorageData = step1Identity as Record<string, unknown> | null;
   const step2StorageData = step2Session as Record<string, unknown> | null;
-
-  const applicationCode = getApplicationCodeFromStorage(
-    step1StorageData,
-    step2StorageData,
-  );
 
   const scoreGrade = getScoreGradeFromStorage(
     step1StorageData,
@@ -464,9 +482,9 @@ function PreliminaryInfoScreen() {
     step2Session?.selectedDeductionIds || [],
   );
 
-  const [selectedPackageId, setSelectedPackageId] = useState<LoanPackageId>(
-    step2Session?.selectedPackageId || "promotion",
-  );
+ const [selectedPackageId] = useState<LoanPackageId>(() =>
+  normalizeLoanPackageId(step2Session?.selectedPackageId),
+);
 
   const [selectedTerm, setSelectedTerm] = useState(
     step2Session?.selectedTerm || step2Session?.term || "12",
@@ -509,13 +527,16 @@ function PreliminaryInfoScreen() {
     useState<AssetValuationResponse | null>(null);
 
   const [genderOptions, setGenderOptions] = useState<ReferenceOption[]>([]);
-  const [occupationOptions, setOccupationOptions] =
-    useState<ReferenceOption[]>([]);
+  const [occupationOptions, setOccupationOptions] = useState<ReferenceOption[]>(
+    [],
+  );
   const [loanPurposeOptions, setLoanPurposeOptions] = useState<
     ReferenceOption[]
   >([]);
-  const [assetTypeOptions, setAssetTypeOptions] =
-    useState<ReferenceOption[]>([]);
+  const [loanTermOptions, setLoanTermOptions] = useState<ReferenceOption[]>([]);
+  const [assetTypeOptions, setAssetTypeOptions] = useState<ReferenceOption[]>(
+    [],
+  );
   const [vehicleBrandOptions, setVehicleBrandOptions] = useState<
     ReferenceOption[]
   >([]);
@@ -601,6 +622,57 @@ function PreliminaryInfoScreen() {
   });
 
   useEffect(() => {
+    const setValueIfEmpty = (
+      name: keyof PreliminaryInfoFormValues,
+      value?: string,
+    ) => {
+      if (!value || form.getValues(name)) {
+        return;
+      }
+
+      form.setValue(name, value, {
+        shouldDirty: false,
+        shouldValidate: false,
+      });
+    };
+
+    setValueIfEmpty("fullName", step2Session.fullName || step1Identity.fullName);
+    setValueIfEmpty(
+      "identityNumber",
+      step2Session.identityNumber || step1Identity.identityNumber,
+    );
+    setValueIfEmpty(
+      "phoneNumber",
+      step2Session.phoneNumber || step1Identity.phoneNumber,
+    );
+    setValueIfEmpty(
+      "dateOfBirth",
+      step2Session.dateOfBirth || step1Identity.dateOfBirth,
+    );
+    setValueIfEmpty(
+      "gender",
+      normalizeGender(
+        step2Session.gender ||
+          step1Identity.gender ||
+          mapOcrSexToGender(step1Identity.sex),
+      ),
+    );
+  }, [
+    form,
+    step1Identity.dateOfBirth,
+    step1Identity.fullName,
+    step1Identity.gender,
+    step1Identity.identityNumber,
+    step1Identity.phoneNumber,
+    step1Identity.sex,
+    step2Session.dateOfBirth,
+    step2Session.fullName,
+    step2Session.gender,
+    step2Session.identityNumber,
+    step2Session.phoneNumber,
+  ]);
+
+  useEffect(() => {
     let isMounted = true;
 
     const loadAssetTypes = async () => {
@@ -642,9 +714,6 @@ function PreliminaryInfoScreen() {
         const response = await referenceDataApi.getOccupations();
         const options = mapReferenceOptions(response);
 
-        console.log("Occupations response:", response);
-        console.log("Occupations options:", options);
-
         if (!isMounted) return;
 
         setOccupationOptions(options);
@@ -674,6 +743,23 @@ function PreliminaryInfoScreen() {
       }
     };
 
+    const loadLoanTerms = async () => {
+      try {
+        const response = await referenceDataApi.getLoanTerms();
+        const options = mapReferenceOptions(response);
+
+        if (!isMounted) return;
+
+        setLoanTermOptions(options);
+      } catch (error) {
+        console.error("Load loan terms error:", error);
+
+        if (!isMounted) return;
+
+        setLoanTermOptions([]);
+      }
+    };
+
     const loadDeductionFactors = async () => {
       try {
         const response = await referenceDataApi.getValuationDeductionFactors();
@@ -696,6 +782,7 @@ function PreliminaryInfoScreen() {
       loadGenders(),
       loadOccupations(),
       loadLoanPurposes(),
+      loadLoanTerms(),
       loadDeductionFactors(),
     ]);
 
@@ -703,6 +790,30 @@ function PreliminaryInfoScreen() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const currentGender = form.getValues("gender");
+
+    if (!currentGender || genderOptions.length === 0) {
+      return;
+    }
+
+    const normalizedGender = normalizeGender(currentGender);
+
+    const matchedOption = genderOptions.find((option) => {
+      return (
+        normalizeGender(option.value) === normalizedGender ||
+        normalizeGender(option.label) === normalizedGender
+      );
+    });
+
+    if (matchedOption && matchedOption.value !== currentGender) {
+      form.setValue("gender", matchedOption.value, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  }, [form, genderOptions]);
 
   useEffect(() => {
     let isMounted = true;
@@ -915,11 +1026,11 @@ function PreliminaryInfoScreen() {
     };
   }, [watchedModel, watchedVersion, watchedManufactureYear, watchedColor]);
 
-  const marketValue =
-    valuationResult?.data?.marketValue ??
-    valuationResult?.marketValue ??
-    marketPriceResult?.data?.marketValue ??
-    0;
+  const previewData = useMemo(() => {
+    if (!valuationResult) return null;
+
+    return valuationResult.data || valuationResult;
+  }, [valuationResult]);
 
   const selectedPackage = useMemo(() => {
     return (
@@ -927,16 +1038,6 @@ function PreliminaryInfoScreen() {
       loanPackages[1]
     );
   }, [selectedPackageId]);
-
-  const totalDeductionPercent = useMemo(() => {
-    return deductionOptions
-      .filter((item) => selectedDeductionIds.includes(item.id))
-      .reduce((total, item) => total + item.percent, 0);
-  }, [deductionOptions, selectedDeductionIds]);
-
-  const valueAfterDeduction = useMemo(() => {
-    return marketValue * (1 - totalDeductionPercent / 100);
-  }, [marketValue, totalDeductionPercent]);
 
   const selectedRecommendedProduct = useMemo(() => {
     return (
@@ -948,19 +1049,122 @@ function PreliminaryInfoScreen() {
     );
   }, [recommendedProducts, selectedProductCode]);
 
+  const marketValue = useMemo(() => {
+    return (
+      getNumberFromUnknownObject(previewData, ["marketValue"]) ||
+      getNumberFromUnknownObject(marketPriceResult?.data, ["marketValue"]) ||
+      getNumberFromUnknownObject(marketPriceResult, ["marketValue"]) ||
+      0
+    );
+  }, [marketPriceResult, previewData]);
+
+  const totalDeductionPercent = useMemo(() => {
+    return deductionOptions
+      .filter((item) => selectedDeductionIds.includes(item.id))
+      .reduce((total, item) => total + item.percent, 0);
+  }, [deductionOptions, selectedDeductionIds]);
+
+  const totalDeductionAmount = useMemo(() => {
+    if (selectedDeductionIds.length === 0) {
+      return 0;
+    }
+
+    const selectedDeductionAmount = selectedDeductionIds.reduce(
+      (total, deductionId) => {
+        return total + Number(deductionAmountsById[deductionId] ?? 0);
+      },
+      0,
+    );
+
+    if (selectedDeductionAmount > 0) {
+      return selectedDeductionAmount;
+    }
+
+    const totalDeductionAmountFromApi = getNumberFromUnknownObject(
+      previewData,
+      ["totalDeductionAmount"],
+    );
+
+    if (totalDeductionAmountFromApi > 0) {
+      return totalDeductionAmountFromApi;
+    }
+
+    const finalValueFromApi = getNumberFromUnknownObject(previewData, [
+      "finalValue",
+      "valueAfterDeduction",
+    ]);
+
+    if (marketValue > 0 && finalValueFromApi > 0) {
+      return Math.max(marketValue - finalValueFromApi, 0);
+    }
+
+    const fallbackAmountFromPercent =
+      marketValue > 0 && totalDeductionPercent > 0
+        ? (marketValue * totalDeductionPercent) / 100
+        : 0;
+
+    return fallbackAmountFromPercent;
+  }, [
+    deductionAmountsById,
+    marketValue,
+    previewData,
+    selectedDeductionIds,
+    totalDeductionPercent,
+  ]);
+
+  const valueAfterDeduction = useMemo(() => {
+    if (marketValue <= 0) {
+      return 0;
+    }
+
+    if (selectedDeductionIds.length === 0) {
+      return marketValue;
+    }
+
+    if (totalDeductionAmount > 0) {
+      return Math.max(marketValue - totalDeductionAmount, 0);
+    }
+
+    const finalValueFromApi = getNumberFromUnknownObject(previewData, [
+      "finalValue",
+      "valueAfterDeduction",
+    ]);
+
+    if (finalValueFromApi > 0) {
+      return finalValueFromApi;
+    }
+
+    return marketValue;
+  }, [
+    marketValue,
+    previewData,
+    selectedDeductionIds.length,
+    totalDeductionAmount,
+  ]);
+
+  const appraisalLtvPercent = useMemo(() => {
+    return (
+      Number(
+        selectedRecommendedProduct?.maxLtvPercent ?? selectedPackage.ltv ?? 75,
+      ) || 75
+    );
+  }, [selectedPackage.ltv, selectedRecommendedProduct]);
+
   const maxLoanByAppraisal = useMemo(() => {
-    const ltv = selectedRecommendedProduct?.maxLtvPercent ?? selectedPackage.ltv;
+    const adjustedAssetValue = Number(valueAfterDeduction);
 
-    return Math.round(valueAfterDeduction * (ltv / 100));
-  }, [selectedPackage.ltv, selectedRecommendedProduct, valueAfterDeduction]);
+    if (adjustedAssetValue <= 0) {
+      return 0;
+    }
 
-  const monthlyPayment = useMemo(() => {
-    return Math.round(selectedRecommendedProduct?.estimatedMonthlyPayment ?? 0);
-  }, [selectedRecommendedProduct]);
+    return Math.round(adjustedAssetValue * (appraisalLtvPercent / 100));
+  }, [appraisalLtvPercent, valueAfterDeduction]);
 
   const handleToggleDeduction = (id: string, checked: boolean) => {
     setSelectedDeductionIds((prev) => {
       if (checked) {
+        if (prev.includes(id)) return prev;
+
         return [...prev, id];
       }
 
@@ -977,109 +1181,42 @@ function PreliminaryInfoScreen() {
     });
   };
 
-  const getPreviewData = (): AssetValuationPreviewData | null => {
-    if (!valuationResult) {
-      return null;
-    }
+  const getValuationMarketValue = () => marketValue;
 
-    return valuationResult.data || valuationResult;
-  };
+  const getValuationTotalDeductionAmount = () => totalDeductionAmount;
 
-  const getValuationMarketValue = () => {
-    const data = getPreviewData();
+  const getValuationValueAfterDeduction = () => valueAfterDeduction;
 
+  const getValuationMaxLoanAmount = () => maxLoanByAppraisal;
+
+  const getCurrentApplicationCode = () => {
     return (
-      data?.marketValue ??
-      marketPriceResult?.data?.marketValue ??
-      marketValue
+      storeApplicationCode ||
+      String(step2Session?.applicationCode || "") ||
+      String(step2Session?.loanApplicationCode || "") ||
+      String(step1Identity?.applicationCode || "") ||
+      String(step1Identity?.loanApplicationCode || "")
     );
   };
 
-  const getValuationTotalDeductionAmount = () => {
-    const data = getPreviewData();
-
-    const totalDeductionAmount = Number(data?.totalDeductionAmount ?? 0);
-
-    if (totalDeductionAmount > 0) {
-      return totalDeductionAmount;
-    }
-
-    const currentMarketValue = Number(
-      data?.marketValue ?? marketPriceResult?.data?.marketValue ?? 0,
-    );
-
-    const currentFinalValue = Number(
-      data?.finalValue ?? data?.valueAfterDeduction ?? 0,
-    );
-
-    if (currentMarketValue > 0 && currentFinalValue > 0) {
-      return Math.max(currentMarketValue - currentFinalValue, 0);
-    }
-
-    return 0;
-  };
-
-  const getValuationDeductionRate = () => {
-    const data = getPreviewData();
-
-    return data?.totalDeductionRate ?? totalDeductionPercent;
-  };
-
-  const getValuationValueAfterDeduction = () => {
-    const data = getPreviewData();
-
-    return data?.finalValue ?? data?.valueAfterDeduction ?? valueAfterDeduction;
-  };
-
-  const getValuationMaxLoanAmount = () => {
-    const data = getPreviewData();
-
-    return (
-      data?.loanableValue ??
-      data?.maxLoanAmount ??
-      selectedRecommendedProduct?.effectiveMaxLoanAmount ??
-      selectedRecommendedProduct?.maxLoanByLtv ??
-      maxLoanByAppraisal
-    );
-  };
-
-  const getValuationLtv = () => {
-    const data = getPreviewData();
-
-    return (
-      data?.ltvRatio ??
-      data?.ltvRate ??
-      data?.loanToValue ??
-      selectedRecommendedProduct?.maxLtvPercent ??
-      selectedPackage.ltv
-    );
-  };
-
-  const adjustedAssetValueForRecommendation = Number(
-    getValuationValueAfterDeduction(),
-  );
-
-  const buildPayload = (
+  const buildSaveDraftPayload = (
     values: PreliminaryInfoFormValues,
-  ): PreliminaryInfoPayload => {
+  ): SaveLoanApplicationDraftPayload => {
     return {
-      ...values,
-      monthlyIncome: getDigitsOnly(values.monthlyIncome),
-      desiredLoanAmount: getDigitsOnly(values.desiredLoanAmount),
-      selectedDeductionIds,
-      totalDeductionPercent: getValuationDeductionRate(),
-      marketValue: getValuationMarketValue(),
-      valueAfterDeduction: getValuationValueAfterDeduction(),
-      selectedPackageId,
-      selectedTerm,
-      selectedProductCode:
-        selectedRecommendedProduct?.productCode || selectedProductCode,
-      recommendedProductCode:
-        loanRecommendationResult?.data?.recommendedProductCode ||
-        selectedRecommendedProduct?.productCode ||
-        "",
-      monthlyPayment,
-      maxLoanByAppraisal: getValuationMaxLoanAmount(),
+      applicantSnapshot: {
+        fullName: values.fullName || "",
+        dateOfBirth: values.dateOfBirth || "",
+        gender: normalizeGender(values.gender),
+        identifierNumber: values.identityNumber || "",
+        phoneNumber: values.phoneNumber || "",
+        occupation: values.job || "",
+        monthlyIncome: Number(getDigitsOnly(values.monthlyIncome)),
+      },
+      loanRequest: {
+        loanPurpose: values.loanPurpose || "",
+        requestedAmount: Number(getDigitsOnly(values.desiredLoanAmount)),
+        requestedTenure: Number(values.term || selectedTerm || 0),
+      },
     };
   };
 
@@ -1097,6 +1234,8 @@ function PreliminaryInfoScreen() {
         loanRecommendationResult?.data?.recommendedProductCode ||
         selectedRecommendedProduct?.productCode ||
         "",
+      applicationCode: getCurrentApplicationCode(),
+      loanApplicationCode: getCurrentApplicationCode(),
     } as unknown as Parameters<typeof saveStep2PreliminaryInfo>[0];
 
     saveStep2PreliminaryInfo(nextSessionData);
@@ -1113,7 +1252,6 @@ function PreliminaryInfoScreen() {
 
   const buildAssetValuationPayload = (
     vehicleVariant: string,
-    marketValueFromApi: number,
     deductionItems = buildDeductionItems(),
   ): AssetValuationPayload => {
     const values = form.getValues();
@@ -1126,7 +1264,6 @@ function PreliminaryInfoScreen() {
         vehicleVariant,
         manufactureYear: Number(values.manufactureYear || 0),
         vehicleColor: String(values.color || ""),
-        marketValue: marketValueFromApi,
       },
       deductionItems,
     };
@@ -1171,7 +1308,9 @@ function PreliminaryInfoScreen() {
       }
 
       const marketValueFromApi = Number(
-        marketPriceResponse.data?.marketValue || 0,
+        marketPriceResponse.data?.marketValue ||
+          getNumberFromUnknownObject(marketPriceResponse, ["marketValue"]) ||
+          0,
       );
 
       if (!marketValueFromApi) {
@@ -1182,7 +1321,6 @@ function PreliminaryInfoScreen() {
 
       const previewPayload = buildAssetValuationPayload(
         vehicleVariant,
-        marketValueFromApi,
       );
 
       const previewResponse = await assetValuationApi.preview(previewPayload);
@@ -1257,7 +1395,6 @@ function PreliminaryInfoScreen() {
           deductionOptions.map(async (deduction) => {
             const payload = buildAssetValuationPayload(
               vehicleVariant,
-              currentMarketValue,
               [
                 {
                   type: deduction.id,
@@ -1269,18 +1406,18 @@ function PreliminaryInfoScreen() {
             const response = await assetValuationApi.preview(payload);
             const data = response.data || response;
 
-            const totalDeductionAmount = Number(
-              data?.totalDeductionAmount ?? 0,
+            const totalDeductionAmountFromApi = getNumberFromUnknownObject(
+              data,
+              ["totalDeductionAmount"],
             );
 
-            const finalValue = Number(
-              data?.finalValue ?? data?.valueAfterDeduction ?? 0,
-            );
+            const finalValue = getNumberFromUnknownObject(data, [
+              "finalValue",
+              "valueAfterDeduction",
+            ]);
 
             const amountFromFinalValue =
-              finalValue > 0
-                ? Math.max(currentMarketValue - finalValue, 0)
-                : 0;
+              finalValue > 0 ? Math.max(currentMarketValue - finalValue, 0) : 0;
 
             const amountFromPercent =
               deduction.percent > 0
@@ -1288,7 +1425,9 @@ function PreliminaryInfoScreen() {
                 : 0;
 
             const amount =
-              totalDeductionAmount || amountFromFinalValue || amountFromPercent;
+              totalDeductionAmountFromApi ||
+              amountFromFinalValue ||
+              amountFromPercent;
 
             return [deduction.id, amount] as const;
           }),
@@ -1327,12 +1466,11 @@ function PreliminaryInfoScreen() {
     );
 
     if (
-      !applicationCode ||
       !watchedLoanPurpose ||
       !watchedAssetType ||
       !watchedTerm ||
       requestedLoanAmount <= 0 ||
-      adjustedAssetValueForRecommendation <= 0
+      valueAfterDeduction <= 0
     ) {
       setLoanRecommendationResult(null);
       setRecommendedProducts([]);
@@ -1347,14 +1485,11 @@ function PreliminaryInfoScreen() {
       selectedAssetType: mapAssetTypeToApiValue(watchedAssetType),
       selectedTenor: Number(watchedTerm),
       requestedLoanAmount,
-      adjustedAssetValue: adjustedAssetValueForRecommendation,
+      adjustedAssetValue: Number(valueAfterDeduction),
       scoreGrade,
     };
 
-    const signature = JSON.stringify({
-      applicationCode,
-      payload,
-    });
+    const signature = JSON.stringify(payload);
 
     if (signature === loanRecommendationSignatureRef.current) {
       return;
@@ -1367,10 +1502,7 @@ function PreliminaryInfoScreen() {
       setLoanRecommendationError("");
 
       try {
-        const response = await loanProductRecommendationApi.recommend(
-          applicationCode,
-          payload,
-        );
+        const response = await loanProductRecommendationApi.recommend(payload);
 
         if (response.success === false) {
           throw new Error(
@@ -1378,7 +1510,12 @@ function PreliminaryInfoScreen() {
           );
         }
 
-        const products = response.data?.products || [];
+        const products = (response.data?.products || []).map((product) => ({
+          ...product,
+          productMaxLoanAmount:
+            product.productMaxLoanAmount ?? product.maxLoanAmount,
+          tenor: product.tenor ?? Number(watchedTerm),
+        }));
 
         setLoanRecommendationResult(response);
         setRecommendedProducts(products);
@@ -1390,12 +1527,24 @@ function PreliminaryInfoScreen() {
           "";
 
         setSelectedProductCode((current) => {
-          if (current && products.some((item) => item.productCode === current)) {
+          if (
+            current &&
+            products.some((item) => item.productCode === current)
+          ) {
             return current;
           }
 
           return nextSelectedProductCode;
         });
+
+        const selectedProduct =
+          products.find(
+            (product) => product.productCode === nextSelectedProductCode,
+          ) ||
+          products.find((product) => product.recommended) ||
+          products[0];
+
+        setSelectedLoanProduct(selectedProduct || null);
       } catch (error) {
         console.error("Loan product recommendation error:", error);
 
@@ -1403,7 +1552,7 @@ function PreliminaryInfoScreen() {
         setRecommendedProducts([]);
         setSelectedProductCode("");
         setLoanRecommendationError(
-          "Không thể lấy đề xuất gói vay. Vui lòng kiểm tra lại thông tin khoản vay và định giá tài sản.",
+          "Không thể lấy đề xuất gói vay. Vui lòng kiểm tra lại mục đích vay, kỳ hạn, số tiền vay và định giá tài sản.",
         );
 
         loanRecommendationSignatureRef.current = "";
@@ -1418,24 +1567,38 @@ function PreliminaryInfoScreen() {
       }
     };
   }, [
-    applicationCode,
     scoreGrade,
     watchedLoanPurpose,
     watchedAssetType,
     watchedTerm,
     watchedDesiredLoanAmount,
-    adjustedAssetValueForRecommendation,
+    valueAfterDeduction,
+    setSelectedLoanProduct,
   ]);
 
   const handleSaveDraft = async () => {
     const values = form.getValues();
-    const payload = buildPayload(values);
+    const applicationCode = getCurrentApplicationCode();
 
     saveCurrentStep2ToSession(values);
 
     try {
-      await preliminaryInfoApi.saveDraft(payload);
-      console.log("Đã lưu nháp bước 2:", payload);
+      if (!applicationCode) {
+        throw new Error(
+          "Thieu applicationCode. Vui long hoan tat man dinh danh truoc.",
+        );
+      }
+
+      const response = await preliminaryInfoApi.saveDraft(
+        applicationCode,
+        buildSaveDraftPayload(values),
+      );
+
+      if (!response.success || !response.data?.applicationCode) {
+        throw new Error(response.message || "Luu nhap that bai.");
+      }
+
+      setApplicationCode(response.data.applicationCode);
     } catch (error) {
       console.error("Lưu nháp lỗi:", error);
     }
@@ -1445,11 +1608,38 @@ function PreliminaryInfoScreen() {
     setIsSubmitting(true);
 
     try {
-      const payload = buildPayload(values);
+      const applicationCode = getCurrentApplicationCode();
 
       saveCurrentStep2ToSession(values);
 
-      await preliminaryInfoApi.submit(payload);
+      if (!applicationCode) {
+        throw new Error(
+          "Thieu applicationCode. Vui long hoan tat man dinh danh truoc.",
+        );
+      }
+
+      const draftResponse = await preliminaryInfoApi.saveDraft(
+        applicationCode,
+        buildSaveDraftPayload(values),
+      );
+
+      if (!draftResponse.success || !draftResponse.data?.applicationCode) {
+        throw new Error(draftResponse.message || "Luu nhap that bai.");
+      }
+
+      setApplicationCode(draftResponse.data.applicationCode);
+
+      const submitResponse = await preliminaryInfoApi.submit(
+        draftResponse.data.applicationCode,
+      );
+
+      if (!submitResponse.success || !submitResponse.data?.completed) {
+        throw new Error(
+          submitResponse.message ||
+            submitResponse.data?.validationErrors?.join(", ") ||
+            "Hoan thanh buoc thong tin so bo that bai.",
+        );
+      }
 
       navigate({
         to: "/loan/customer-identify",
@@ -1661,12 +1851,7 @@ function PreliminaryInfoScreen() {
                     label="Kỳ hạn (tháng)"
                     placeholder="Chọn kỳ hạn"
                     onAfterChange={handleSelectTerm}
-                    options={[
-                      { label: "12 tháng", value: "12" },
-                      { label: "36 tháng", value: "36" },
-                      { label: "48 tháng", value: "48" },
-                      { label: "72 tháng", value: "72" },
-                    ]}
+                    options={loanTermOptions}
                   />
                 </div>
               </SectionCard>
@@ -1762,31 +1947,71 @@ function PreliminaryInfoScreen() {
                 }
                 iconClassName="bg-[#e9f8ee]"
               >
-                <AppraisalSummary
-                  marketValue={getValuationMarketValue()}
-                  totalDeductionPercent={getValuationDeductionRate()}
-                  totalDeductionAmount={getValuationTotalDeductionAmount()}
-                  valueAfterDeduction={getValuationValueAfterDeduction()}
-                  maxLoanByAppraisal={getValuationMaxLoanAmount()}
-                  ltv={getValuationLtv()}
-                  isLoading={isValuationLoading}
-                />
+                <div>
+                  <div>
+                    <h3 className="text-base font-bold text-[#111827]">
+                      Kết quả định giá sơ bộ
+                    </h3>
+
+                    <p className="mt-1 text-sm text-[#64748b]">
+                      Hệ thống tự động tính khi nhập đủ thông tin tài sản.
+                    </p>
+                  </div>
+
+                  <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+                    <div className="rounded-xl bg-[#eef9ef] p-5">
+                      <p className="text-sm text-[#64748b]">
+                        Giá trị thị trường
+                      </p>
+
+                      <p className="mt-3 text-2xl font-bold text-[#111827]">
+                        {isValuationLoading
+                          ? "Đang tính..."
+                          : formatCurrencyVnd(getValuationMarketValue())}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-[#fde8ec] p-5">
+                      <p className="text-sm text-[#64748b]">Tổng giảm trừ</p>
+
+                      <p className="mt-3 text-2xl font-bold text-[#dc2626]">
+                        {isValuationLoading
+                          ? "Đang tính..."
+                          : formatCurrencyVnd(
+                              getValuationTotalDeductionAmount(),
+                            )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-[#e8f8e8] p-5">
+                      <p className="text-sm text-[#64748b]">Giá sau giảm trừ</p>
+
+                      <p className="mt-3 text-2xl font-bold text-[#009b3a]">
+                        {isValuationLoading
+                          ? "Đang tính..."
+                          : formatCurrencyVnd(
+                              getValuationValueAfterDeduction(),
+                            )}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-[#e8f8e8] p-5">
+                      <p className="text-sm text-[#64748b]">Khoản vay tối đa</p>
+
+                      <p className="mt-3 text-2xl font-bold text-[#009b3a]">
+                        {isValuationLoading
+                          ? "Đang tính..."
+                          : formatCurrencyVnd(getValuationMaxLoanAmount())}
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
                 {valuationError && (
                   <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
                     {valuationError}
                   </div>
                 )}
-
-                {resolvedVehicleVariant &&
-                  marketPriceResult &&
-                  valuationResult &&
-                  !valuationError && (
-                    <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
-                      Đã resolve biến thể xe, lấy giá thị trường và tính định
-                      giá sơ bộ thành công.
-                    </div>
-                  )}
               </SectionCard>
 
               <SectionCard
@@ -1803,15 +2028,12 @@ function PreliminaryInfoScreen() {
                   }
                   selectedProductCode={selectedProductCode}
                   selectedTerm={selectedTerm}
+                  termOptions={loanTermOptions}
                   requestedLoanAmount={Number(
                     getDigitsOnly(form.watch("desiredLoanAmount") || ""),
                   )}
                   isLoading={isLoanRecommendationLoading}
-                  error={
-                    !applicationCode
-                      ? "Chưa có applicationCode nên chưa thể gọi API đề xuất gói vay."
-                      : loanRecommendationError
-                  }
+                  error={loanRecommendationError}
                   onSelectProduct={setSelectedProductCode}
                   onSelectTerm={handleSelectTerm}
                 />

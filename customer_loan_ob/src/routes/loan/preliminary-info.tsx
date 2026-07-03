@@ -459,6 +459,13 @@ function PreliminaryInfoScreen() {
   const setSelectedLoanProduct = useLoanOnboardingStore(
     (state) => state.setSelectedLoanProduct,
   );
+  const setLoanRecommendation = useLoanOnboardingStore(
+    (state) => state.setLoanRecommendation,
+  );
+  const setCurrentStep = useLoanOnboardingStore((state) => state.setCurrentStep);
+  const selectedCustomer = useLoanOnboardingStore(
+    (state) => state.selectedCustomer,
+  );
   const step1Identity = useLoanOnboardingStore(
     (state) => state.step1CustomerIdentify,
   );
@@ -468,6 +475,7 @@ function PreliminaryInfoScreen() {
 
   const step1StorageData = step1Identity as Record<string, unknown> | null;
   const step2StorageData = step2Session as Record<string, unknown> | null;
+  const selectedCustomerData = selectedCustomer as Record<string, unknown> | null;
 
   const scoreGrade = getScoreGradeFromStorage(
     step1StorageData,
@@ -475,7 +483,10 @@ function PreliminaryInfoScreen() {
   );
 
   const initialGender = normalizeGender(
-    step2Session?.gender || mapOcrSexToGender(step1Identity?.sex),
+    getStringFromUnknownObject(selectedCustomerData, ["gender", "sex"]) ||
+      step2Session?.gender ||
+      step1Identity?.gender ||
+      mapOcrSexToGender(step1Identity?.sex),
   );
 
   const [selectedDeductionIds, setSelectedDeductionIds] = useState<string[]>(
@@ -568,13 +579,36 @@ function PreliminaryInfoScreen() {
   const form = useForm<PreliminaryInfoFormValues>({
     resolver: zodResolver(preliminaryInfoSchema),
     defaultValues: {
-      fullName: step2Session?.fullName || step1Identity?.fullName || "",
+      fullName:
+        getStringFromUnknownObject(selectedCustomerData, [
+          "fullName",
+          "customerName",
+        ]) ||
+        step2Session?.fullName ||
+        step1Identity?.fullName ||
+        "",
       identityNumber:
-        step2Session?.identityNumber || step1Identity?.identityNumber || "",
+        getStringFromUnknownObject(selectedCustomerData, [
+          "identifierNumber",
+          "identityNumber",
+          "cccdNumber",
+        ]) ||
+        step2Session?.identityNumber ||
+        step1Identity?.identityNumber ||
+        "",
       phoneNumber:
-        step2Session?.phoneNumber || step1Identity?.phoneNumber || "",
+        getStringFromUnknownObject(selectedCustomerData, ["phoneNumber"]) ||
+        step2Session?.phoneNumber ||
+        step1Identity?.phoneNumber ||
+        "",
       dateOfBirth:
-        step2Session?.dateOfBirth || step1Identity?.dateOfBirth || "",
+        getStringFromUnknownObject(selectedCustomerData, [
+          "dateOfBirth",
+          "birthDate",
+        ]) ||
+        step2Session?.dateOfBirth ||
+        step1Identity?.dateOfBirth ||
+        "",
 
       gender: initialGender,
       job: step2Session?.job || "",
@@ -622,11 +656,12 @@ function PreliminaryInfoScreen() {
   });
 
   useEffect(() => {
-    const setValueIfEmpty = (
+    const setPrefillValue = (
       name: keyof PreliminaryInfoFormValues,
       value?: string,
+      overwrite = false,
     ) => {
-      if (!value || form.getValues(name)) {
+      if (!value || (!overwrite && form.getValues(name))) {
         return;
       }
 
@@ -636,29 +671,61 @@ function PreliminaryInfoScreen() {
       });
     };
 
-    setValueIfEmpty("fullName", step2Session.fullName || step1Identity.fullName);
-    setValueIfEmpty(
-      "identityNumber",
-      step2Session.identityNumber || step1Identity.identityNumber,
+    const selectedFullName = getStringFromUnknownObject(selectedCustomerData, [
+      "fullName",
+      "customerName",
+    ]);
+    const selectedIdentityNumber = getStringFromUnknownObject(
+      selectedCustomerData,
+      ["identifierNumber", "identityNumber", "cccdNumber"],
     );
-    setValueIfEmpty(
+    const selectedPhoneNumber = getStringFromUnknownObject(selectedCustomerData, [
       "phoneNumber",
-      step2Session.phoneNumber || step1Identity.phoneNumber,
-    );
-    setValueIfEmpty(
+    ]);
+    const selectedDateOfBirth = getStringFromUnknownObject(selectedCustomerData, [
       "dateOfBirth",
-      step2Session.dateOfBirth || step1Identity.dateOfBirth,
+      "birthDate",
+    ]);
+    const selectedGender = getStringFromUnknownObject(selectedCustomerData, [
+      "gender",
+      "sex",
+    ]);
+
+    setPrefillValue(
+      "fullName",
+      selectedFullName || step2Session.fullName || step1Identity.fullName,
+      Boolean(selectedFullName),
     );
-    setValueIfEmpty(
+    setPrefillValue(
+      "identityNumber",
+      selectedIdentityNumber ||
+        step2Session.identityNumber ||
+        step1Identity.identityNumber,
+      Boolean(selectedIdentityNumber),
+    );
+    setPrefillValue(
+      "phoneNumber",
+      selectedPhoneNumber || step2Session.phoneNumber || step1Identity.phoneNumber,
+      Boolean(selectedPhoneNumber),
+    );
+    setPrefillValue(
+      "dateOfBirth",
+      selectedDateOfBirth || step2Session.dateOfBirth || step1Identity.dateOfBirth,
+      Boolean(selectedDateOfBirth),
+    );
+    setPrefillValue(
       "gender",
       normalizeGender(
-        step2Session.gender ||
+        selectedGender ||
+          step2Session.gender ||
           step1Identity.gender ||
           mapOcrSexToGender(step1Identity.sex),
       ),
+      Boolean(selectedGender),
     );
   }, [
     form,
+    selectedCustomerData,
     step1Identity.dateOfBirth,
     step1Identity.fullName,
     step1Identity.gender,
@@ -1518,6 +1585,7 @@ function PreliminaryInfoScreen() {
         }));
 
         setLoanRecommendationResult(response);
+        setLoanRecommendation((response.data || response) as Record<string, unknown>);
         setRecommendedProducts(products);
 
         const nextSelectedProductCode =
@@ -1573,6 +1641,7 @@ function PreliminaryInfoScreen() {
     watchedTerm,
     watchedDesiredLoanAmount,
     valueAfterDeduction,
+    setLoanRecommendation,
     setSelectedLoanProduct,
   ]);
 
@@ -1641,8 +1710,10 @@ function PreliminaryInfoScreen() {
         );
       }
 
+      setCurrentStep(3);
+
       navigate({
-        to: "/loan/customer-identify",
+        to: "/loan/customer-asset-detail",
       });
     } catch (error) {
       console.error("Submit step 2 lỗi:", error);
@@ -1660,6 +1731,9 @@ function PreliminaryInfoScreen() {
       to: "/loan/customer-identify",
     });
   };
+
+  void handleSaveDraft;
+  void handleCancel;
 
   const resetValuation = () => {
     setResolvedVehicleVariant(null);
@@ -2041,8 +2115,6 @@ function PreliminaryInfoScreen() {
 
               <BottomActions
                 isSubmitting={isSubmitting}
-                onSaveDraft={handleSaveDraft}
-                onCancel={handleCancel}
                 onBack={handleBack}
               />
             </form>

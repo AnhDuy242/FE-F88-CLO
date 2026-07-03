@@ -138,6 +138,62 @@ export type Step2PreliminaryInfoState = {
   [key: string]: unknown;
 };
 
+export type ReferencePersonState = {
+  fullName: string;
+  relationshipType: string;
+  phoneNumber: string;
+  address: string;
+  note?: string;
+};
+
+export type AssetDataState = {
+  assetType: string;
+  licensePlate: string;
+  brand: string;
+  model: string;
+  version: string;
+  vehicleVariant: string;
+  manufactureYear: string;
+  vehicleColor: string;
+  selectedDeductionIds: string[];
+  selectedDeductionItems: {
+    type: string;
+    rate: number;
+    label?: string;
+  }[];
+  frameNumber: string;
+  engineNumber: string;
+  vehicleOwnerName: string;
+  registrationNumber: string;
+  registrationIssueDate: string;
+  documentStatus: string;
+  legalStatus: string;
+  assetNote: string;
+};
+
+export type CustomerAssetDetailState = {
+  fullName: string;
+  identityNumber: string;
+  phoneNumber: string;
+  dateOfBirth: string;
+  gender: string;
+  email: string;
+  maritalStatus: string;
+  dependentCount: string;
+  occupationCode: string;
+  workplaceName: string;
+  incomeSourceCode: string;
+  monthlyIncomeAmount: string;
+  disbursementBankCode: string;
+  disbursementAccountNumber: string;
+  disbursementAccountName: string;
+  permanentAddress: string;
+  currentAddress: string;
+  references: ReferencePersonState[];
+  assetData: AssetDataState;
+  selectedLoanProductCode: string;
+};
+
 type LoanOnboardingStoreState = {
   applicationCode: string;
   currentStep: number;
@@ -146,7 +202,12 @@ type LoanOnboardingStoreState = {
   selectedCustomer: Record<string, unknown> | null;
   phoneNumber: string;
   preliminaryInfoData: Step2PreliminaryInfoState | null;
+  customerAssetDetailData: CustomerAssetDetailState | null;
+  step3Data: CustomerAssetDetailState | null;
+  assetData: AssetDataState | null;
+  references: ReferencePersonState[];
   selectedLoanProduct: Record<string, unknown> | null;
+  loanRecommendation: Record<string, unknown> | null;
 
   step1CustomerIdentify: Step1CustomerIdentifyState;
   step2PreliminaryInfo: Step2PreliminaryInfoState;
@@ -171,12 +232,22 @@ type LoanOnboardingStoreState = {
   setSelectedLoanProduct: (
     selectedLoanProduct: Record<string, unknown> | null,
   ) => void;
+  setCustomerAssetDetailData: (
+    customerAssetDetailData: CustomerAssetDetailState | null,
+  ) => void;
+  setStep3Data: (step3Data: CustomerAssetDetailState | null) => void;
+  setAssetData: (assetData: AssetDataState | null) => void;
+  setReferences: (references: ReferencePersonState[]) => void;
+  setLoanRecommendation: (
+    loanRecommendation: Record<string, unknown> | null,
+  ) => void;
 
   prefillStep2FromStep1: () => void;
 
   clearStep1CustomerIdentify: () => void;
   clearStep2PreliminaryInfo: () => void;
   resetLoanOnboarding: () => void;
+  resetOnboarding: () => void;
 };
 
 const initialStep1CustomerIdentify: Step1CustomerIdentifyState = {
@@ -240,6 +311,61 @@ const initialStep2PreliminaryInfo: Step2PreliminaryInfoState = {
   selectedTerm: "12",
   selectedProductCode: "",
   recommendedProductCode: "",
+};
+
+export const initialReferencePersons: ReferencePersonState[] = Array.from(
+  { length: 3 },
+  () => ({
+    fullName: "",
+    relationshipType: "",
+    phoneNumber: "",
+    address: "",
+    note: "",
+  }),
+);
+
+export const initialAssetData: AssetDataState = {
+  assetType: "",
+  licensePlate: "",
+  brand: "",
+  model: "",
+  version: "",
+  vehicleVariant: "",
+  manufactureYear: "",
+  vehicleColor: "",
+  selectedDeductionIds: [],
+  selectedDeductionItems: [],
+  frameNumber: "",
+  engineNumber: "",
+  vehicleOwnerName: "",
+  registrationNumber: "",
+  registrationIssueDate: "",
+  documentStatus: "",
+  legalStatus: "",
+  assetNote: "",
+};
+
+export const initialCustomerAssetDetailData: CustomerAssetDetailState = {
+  fullName: "",
+  identityNumber: "",
+  phoneNumber: "",
+  dateOfBirth: "",
+  gender: "",
+  email: "",
+  maritalStatus: "",
+  dependentCount: "",
+  occupationCode: "",
+  workplaceName: "",
+  incomeSourceCode: "",
+  monthlyIncomeAmount: "",
+  disbursementBankCode: "",
+  disbursementAccountNumber: "",
+  disbursementAccountName: "",
+  permanentAddress: "",
+  currentAddress: "",
+  references: initialReferencePersons,
+  assetData: initialAssetData,
+  selectedLoanProductCode: "",
 };
 
 function getStringValue(source: Record<string, unknown>, keys: string[]) {
@@ -343,7 +469,12 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
       selectedCustomer: null,
       phoneNumber: "",
       preliminaryInfoData: null,
+      customerAssetDetailData: null,
+      step3Data: null,
+      assetData: null,
+      references: initialReferencePersons,
       selectedLoanProduct: null,
+      loanRecommendation: null,
 
       step1CustomerIdentify: initialStep1CustomerIdentify,
       step2PreliminaryInfo: initialStep2PreliminaryInfo,
@@ -449,6 +580,60 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
         set({ selectedLoanProduct });
       },
 
+      setCustomerAssetDetailData: (customerAssetDetailData) => {
+        set({
+          customerAssetDetailData,
+          step3Data: customerAssetDetailData,
+          assetData: customerAssetDetailData?.assetData || null,
+          references:
+            customerAssetDetailData?.references || initialReferencePersons,
+        });
+      },
+
+      setStep3Data: (step3Data) => {
+        get().setCustomerAssetDetailData(step3Data);
+      },
+
+      setAssetData: (assetData) => {
+        set((state) => ({
+          assetData,
+          customerAssetDetailData: state.customerAssetDetailData
+            ? {
+                ...state.customerAssetDetailData,
+                assetData: assetData || initialAssetData,
+              }
+            : state.customerAssetDetailData,
+          step3Data: state.step3Data
+            ? {
+                ...state.step3Data,
+                assetData: assetData || initialAssetData,
+              }
+            : state.step3Data,
+        }));
+      },
+
+      setReferences: (references) => {
+        set((state) => ({
+          references,
+          customerAssetDetailData: state.customerAssetDetailData
+            ? {
+                ...state.customerAssetDetailData,
+                references,
+              }
+            : state.customerAssetDetailData,
+          step3Data: state.step3Data
+            ? {
+                ...state.step3Data,
+                references,
+              }
+            : state.step3Data,
+        }));
+      },
+
+      setLoanRecommendation: (loanRecommendation) => {
+        set({ loanRecommendation });
+      },
+
       prefillStep2FromStep1: () => {
         const { step1CustomerIdentify, step2PreliminaryInfo } = get();
 
@@ -513,6 +698,7 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
         set({
           preliminaryInfoData: null,
           selectedLoanProduct: null,
+          loanRecommendation: null,
           step2PreliminaryInfo: initialStep2PreliminaryInfo,
         });
       },
@@ -526,10 +712,19 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
           selectedCustomer: null,
           phoneNumber: "",
           preliminaryInfoData: null,
+          customerAssetDetailData: null,
+          step3Data: null,
+          assetData: null,
+          references: initialReferencePersons,
           selectedLoanProduct: null,
+          loanRecommendation: null,
           step1CustomerIdentify: initialStep1CustomerIdentify,
           step2PreliminaryInfo: initialStep2PreliminaryInfo,
         });
+      },
+
+      resetOnboarding: () => {
+        get().resetLoanOnboarding();
       },
     }),
     {
@@ -551,7 +746,12 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
         selectedCustomer: state.selectedCustomer,
         phoneNumber: state.phoneNumber,
         preliminaryInfoData: state.preliminaryInfoData,
+        customerAssetDetailData: state.customerAssetDetailData,
+        step3Data: state.step3Data,
+        assetData: state.assetData,
+        references: state.references,
         selectedLoanProduct: state.selectedLoanProduct,
+        loanRecommendation: state.loanRecommendation,
         step1CustomerIdentify: state.step1CustomerIdentify,
         step2PreliminaryInfo: state.step2PreliminaryInfo,
       }),

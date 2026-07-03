@@ -16,6 +16,7 @@ import { Route as CustomerRouteImport } from './routes/customer'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoanPreliminaryInfoRouteImport } from './routes/loan/preliminary-info'
 import { Route as LoanCustomerIdentifyRouteImport } from './routes/loan/customer-identify'
+import { Route as LoanCustomerAssetDetailRouteImport } from './routes/loan/customer-asset-detail'
 
 const SettingRoute = SettingRouteImport.update({
   id: '/setting',
@@ -52,6 +53,11 @@ const LoanCustomerIdentifyRoute = LoanCustomerIdentifyRouteImport.update({
   path: '/loan/customer-identify',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoanCustomerAssetDetailRoute = LoanCustomerAssetDetailRouteImport.update({
+  id: '/loan/customer-asset-detail',
+  path: '/loan/customer-asset-detail',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/setting': typeof SettingRoute
+  '/loan/customer-asset-detail': typeof LoanCustomerAssetDetailRoute
   '/loan/customer-identify': typeof LoanCustomerIdentifyRoute
   '/loan/preliminary-info': typeof LoanPreliminaryInfoRoute
 }
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/setting': typeof SettingRoute
+  '/loan/customer-asset-detail': typeof LoanCustomerAssetDetailRoute
   '/loan/customer-identify': typeof LoanCustomerIdentifyRoute
   '/loan/preliminary-info': typeof LoanPreliminaryInfoRoute
 }
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/setting': typeof SettingRoute
+  '/loan/customer-asset-detail': typeof LoanCustomerAssetDetailRoute
   '/loan/customer-identify': typeof LoanCustomerIdentifyRoute
   '/loan/preliminary-info': typeof LoanPreliminaryInfoRoute
 }
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/login'
     | '/setting'
+    | '/loan/customer-asset-detail'
     | '/loan/customer-identify'
     | '/loan/preliminary-info'
   fileRoutesByTo: FileRoutesByTo
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/login'
     | '/setting'
+    | '/loan/customer-asset-detail'
     | '/loan/customer-identify'
     | '/loan/preliminary-info'
   id:
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/login'
     | '/setting'
+    | '/loan/customer-asset-detail'
     | '/loan/customer-identify'
     | '/loan/preliminary-info'
   fileRoutesById: FileRoutesById
@@ -117,6 +129,7 @@ export interface RootRouteChildren {
   HomeRoute: typeof HomeRoute
   LoginRoute: typeof LoginRoute
   SettingRoute: typeof SettingRoute
+  LoanCustomerAssetDetailRoute: typeof LoanCustomerAssetDetailRoute
   LoanCustomerIdentifyRoute: typeof LoanCustomerIdentifyRoute
   LoanPreliminaryInfoRoute: typeof LoanPreliminaryInfoRoute
 }
@@ -172,6 +185,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoanCustomerIdentifyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/loan/customer-asset-detail': {
+      id: '/loan/customer-asset-detail'
+      path: '/loan/customer-asset-detail'
+      fullPath: '/loan/customer-asset-detail'
+      preLoaderRoute: typeof LoanCustomerAssetDetailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -181,6 +201,7 @@ const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRoute,
   LoginRoute: LoginRoute,
   SettingRoute: SettingRoute,
+  LoanCustomerAssetDetailRoute: LoanCustomerAssetDetailRoute,
   LoanCustomerIdentifyRoute: LoanCustomerIdentifyRoute,
   LoanPreliminaryInfoRoute: LoanPreliminaryInfoRoute,
 }

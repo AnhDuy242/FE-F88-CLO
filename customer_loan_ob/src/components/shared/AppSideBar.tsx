@@ -7,6 +7,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  SidebarTrigger,
 } from "@/components/ui/sidebar";
 
 import { Add } from "iconsax-react";
@@ -50,7 +51,12 @@ export default function AppSideBar() {
   const location = useLocation();
 
   return (
-    <Sidebar collapsible="icon" className="border-none bg-[#008B1D] text-white">
+    <Sidebar
+      collapsible="icon"
+      className="border-none bg-[#008B1D] text-white"
+    >
+      <SidebarTrigger className="absolute -right-3 top-6 z-30 h-7 w-7 rounded-full border border-white/20 bg-[#008B1D] text-white shadow-md hover:bg-[#16b116] hover:text-white" />
+
       <SidebarHeader className="bg-[#008B1D] px-4 py-5">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#12b04b]">
@@ -69,14 +75,17 @@ export default function AppSideBar() {
       </SidebarHeader>
 
       <SidebarContent className="bg-[#008B1D] px-3">
-        <div className="flex items-center gap-2 bg-[#16b116] hover:bg-[#178117] rounded-lg">
+        <div className="flex h-11 items-center gap-2 rounded-lg bg-[#16b116] hover:bg-[#178117] group-data-[collapsible=icon]:justify-center">
           <Add
             size={30}
             color="currentColor"
             variant="Outline"
-            className="pl-2"
+            className="shrink-0 pl-2 group-data-[collapsible=icon]:pl-0"
           />
-          <Link to="/loan/customer-identify">
+          <Link
+            to="/loan/customer-identify"
+            className="group-data-[collapsible=icon]:hidden"
+          >
             <Button>Tạo hồ sơ mới</Button>
           </Link>
         </div>

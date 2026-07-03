@@ -206,34 +206,34 @@ function buildCustomerSnapshot(
   const ocrData = step1CustomerIdentify.ocrData;
 
   const fullName =
-    values.fullName.trim() ||
     getStringFromUnknown(matchedCustomer, ["fullName", "customerName"]) ||
+    values.fullName.trim() ||
     getStringFromUnknown(ocrData, ["fullName", "customerName"]) ||
     step1CustomerIdentify.fullName;
 
   const dateOfBirth =
-    convertDateToApiFormat(values.dateOfBirth) ||
     convertDateToApiFormat(
       getStringFromUnknown(matchedCustomer, ["dateOfBirth", "birthDate"]),
     ) ||
+    convertDateToApiFormat(values.dateOfBirth) ||
     convertDateToApiFormat(
       getStringFromUnknown(ocrData, ["dateOfBirth", "dateOfBirthFormatted"]),
     ) ||
     step1CustomerIdentify.dateOfBirth;
 
   const phoneNumber =
-    values.phoneNumber.trim() ||
     getStringFromUnknown(matchedCustomer, ["phoneNumber"]) ||
+    values.phoneNumber.trim() ||
     getStringFromUnknown(ocrData, ["phoneNumber"]) ||
     step1CustomerIdentify.phoneNumber;
 
   const identityNumber =
-    values.identityNumber.trim() ||
     getStringFromUnknown(matchedCustomer, [
       "identifierNumber",
       "identityNumber",
       "cccdNumber",
     ]) ||
+    values.identityNumber.trim() ||
     getStringFromUnknown(ocrData, [
       "identityNumber",
       "identifierNumber",
@@ -311,8 +311,8 @@ function CustomerIdentifyScreen() {
     setApplicationCode,
     setCurrentStep,
     setStep1CustomerIdentify,
+    setStep2PreliminaryInfo,
     setSelectedCustomer,
-    prefillStep2FromStep1,
     clearStep1CustomerIdentify,
   } = useLoanOnboardingStore();
 
@@ -341,6 +341,8 @@ function CustomerIdentifyScreen() {
   const [result, setResult] = useState<CustomerIdentifyResponse | null>(
     step1CustomerIdentify.customerCheckResult,
   );
+  const [pendingOcrData, setPendingOcrData] =
+    useState<Record<string, unknown> | null>(step1CustomerIdentify.ocrData);
 
   const form = useForm<CustomerIdentifyFormValues>({
     resolver: zodResolver(customerIdentifySchema),
@@ -359,21 +361,6 @@ function CustomerIdentifyScreen() {
   useEffect(() => {
     setCurrentStep(CURRENT_STEP);
   }, [setCurrentStep]);
-
-  useEffect(() => {
-    const subscription = form.watch((values) => {
-      setStep1CustomerIdentify({
-        fullName: values.fullName || "",
-        dateOfBirth: convertDateToApiFormat(values.dateOfBirth),
-        phoneNumber: values.phoneNumber || "",
-        identityNumber: values.identityNumber || "",
-      });
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [form, setStep1CustomerIdentify]);
 
   useEffect(() => {
     return () => {
@@ -418,25 +405,10 @@ function CustomerIdentifyScreen() {
 
     const currentPhoneNumber = form.getValues("phoneNumber") || "";
 
-    setStep1CustomerIdentify({
-      ocrData: {
-        ...ocrData,
-        dateOfBirthFormatted: formattedDateOfBirth,
-        phoneNumber: currentPhoneNumber,
-      },
-      fullName: ocrData.fullName || "",
-      dateOfBirth: formattedDateOfBirth,
+    setPendingOcrData({
+      ...ocrData,
+      dateOfBirthFormatted: formattedDateOfBirth,
       phoneNumber: currentPhoneNumber,
-      identityNumber: ocrData.identityNumber || "",
-      cccdNumber: ocrData.identityNumber || "",
-      documentType: ocrData.documentType || "",
-      sex: ocrData.sex || "",
-      gender: ocrData.sex || "",
-      nationality: ocrData.nationality || "",
-      address: getStringFromUnknown(ocrData, ["address", "permanentAddress"]),
-      issueDate: ocrData.issueDate || "",
-      issuePlace: getStringFromUnknown(ocrData, ["issuePlace", "issuedPlace"]),
-      expiryDate: ocrData.expiryDate || "",
     });
   };
 
@@ -633,6 +605,7 @@ function CustomerIdentifyScreen() {
     setUploadError("");
     setOcrStatus(null);
     setResult(null);
+    setPendingOcrData(null);
     setBirthCalendarMonth(new Date(BIRTH_DEFAULT_YEAR, 0, 1));
 
     clearStep1CustomerIdentify();
@@ -651,7 +624,10 @@ function CustomerIdentifyScreen() {
     let customerSnapshot = buildCustomerSnapshot(
       values,
       result,
-      step1CustomerIdentify,
+      {
+        ...step1CustomerIdentify,
+        ocrData: pendingOcrData || step1CustomerIdentify.ocrData,
+      },
     );
     const existingCustomerCode =
       (result ? getMatchedCustomerCode(result) : "") ||
@@ -740,12 +716,22 @@ function CustomerIdentifyScreen() {
         customerCode,
         customerStatus: customerSnapshot.customerStatus,
         customerCheckResult: result,
-        ocrData: step1CustomerIdentify.ocrData,
+        ocrData: pendingOcrData || step1CustomerIdentify.ocrData,
         applicationCode: nextApplicationCode,
         loanApplicationCode: nextApplicationCode,
       });
 
-      prefillStep2FromStep1();
+      setStep2PreliminaryInfo({
+        fullName: customerSnapshot.fullName,
+        identityNumber: customerSnapshot.identityNumber,
+        phoneNumber: customerSnapshot.phoneNumber,
+        dateOfBirth: customerSnapshot.dateOfBirth || formattedDateOfBirth,
+        gender: customerSnapshot.gender,
+        applicationCode: nextApplicationCode,
+        loanApplicationCode: nextApplicationCode,
+      });
+
+      setCurrentStep(2);
 
       navigate({
         to: "/loan/preliminary-info",
@@ -1013,10 +999,6 @@ function CustomerIdentifyScreen() {
 
                                         field.onChange(nextDate);
                                         setBirthCalendarMonth(date);
-
-                                        setStep1CustomerIdentify({
-                                          dateOfBirth: nextDate,
-                                        });
                                       }}
                                       disabled={(date) =>
                                         date > new Date() ||

@@ -10,6 +10,16 @@ export const API_ENDPOINTS = {
     detail: (applicationCode: string) => `/loan-applications/${applicationCode}`,
     saveDraft: (applicationCode: string) =>
       `/loan-applications/${applicationCode}/draft`,
+    saveCustomerDetail: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/customer-detail`,
+    saveReferencePersons: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/reference-persons`,
+    saveAssetSnapshot: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/asset-snapshot`,
+    saveAssetLegalInfo: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/asset-legal-info`,
+    saveVehicleRegistration: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/vehicle-registration`,
     completePreliminaryStep: (applicationCode: string) =>
       `/loan-applications/${applicationCode}/steps/preliminary/complete`,
     submitForApproval: (applicationCode: string) =>

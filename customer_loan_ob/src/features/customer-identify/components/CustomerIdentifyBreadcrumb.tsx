@@ -1,41 +1,18 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRight2, Home2 } from "iconsax-react";
 
+import { loanOnboardingSteps } from "@/features/loan-onboarding/loan-onboarding.steps";
+
 type CustomerIdentifyBreadcrumbProps = {
   currentStep: number;
 };
 
-const steps = [
-  {
-    step: 1,
-    title: "Định danh khách hàng",
-  },
-  {
-    step: 2,
-    title: "Thông tin sơ bộ gói vay",
-  },
-  {
-    step: 3,
-    title: "Chi tiết khách hàng",
-  },
-  {
-    step: 4,
-    title: "Chi tiết tài sản",
-  },
-  {
-    step: 5,
-    title: "Đề xuất gói vay cuối cùng",
-  },
-  {
-    step: 6,
-    title: "Upload hồ sơ & Hoàn tất",
-  },
-];
-
 export function CustomerIdentifyBreadcrumb({
   currentStep,
 }: CustomerIdentifyBreadcrumbProps) {
-  const currentStepData = steps.find((item) => item.step === currentStep);
+  const currentStepData = loanOnboardingSteps.find(
+    (item) => item.step === currentStep,
+  );
 
   return (
     <nav className="mb-5 flex flex-wrap items-center gap-2 text-sm">

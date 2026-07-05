@@ -13,6 +13,10 @@ import {
   getCurrencyDigits,
   parseCurrencyToNumber,
 } from "@/lib/currency";
+import {
+  normalizeDateForDisplay,
+  parseDisplayDateToApi,
+} from "@/lib/date";
 
 import { CustomerIdentifyBreadcrumb } from "@/features/customer-identify/components/CustomerIdentifyBreadcrumb";
 import { LoanOnboardingStepper } from "@/features/customer-identify/components/LoanOnboardingStepper";
@@ -559,13 +563,14 @@ function PreliminaryInfoScreen() {
         step1Identity?.phoneNumber ||
         "",
       dateOfBirth:
-        getStringFromUnknownObject(selectedCustomerData, [
-          "dateOfBirth",
-          "birthDate",
-        ]) ||
-        step2Session?.dateOfBirth ||
-        step1Identity?.dateOfBirth ||
-        "",
+        normalizeDateForDisplay(
+          getStringFromUnknownObject(selectedCustomerData, [
+            "dateOfBirth",
+            "birthDate",
+          ]) ||
+            step2Session?.dateOfBirth ||
+            step1Identity?.dateOfBirth,
+        ) || "",
 
       gender: initialGender,
       job: step2Session?.job || "",
@@ -667,7 +672,9 @@ function PreliminaryInfoScreen() {
     );
     setPrefillValue(
       "dateOfBirth",
-      selectedDateOfBirth || step2Session.dateOfBirth || step1Identity.dateOfBirth,
+      normalizeDateForDisplay(
+        selectedDateOfBirth || step2Session.dateOfBirth || step1Identity.dateOfBirth,
+      ),
       Boolean(selectedDateOfBirth),
     );
     setPrefillValue(
@@ -1230,7 +1237,7 @@ function PreliminaryInfoScreen() {
     return {
       applicantSnapshot: {
         fullName: values.fullName || "",
-        dateOfBirth: values.dateOfBirth || "",
+        dateOfBirth: parseDisplayDateToApi(values.dateOfBirth) || "",
         gender: normalizeGender(values.gender),
         identifierNumber: values.identityNumber || "",
         phoneNumber: values.phoneNumber || "",
@@ -1246,6 +1253,38 @@ function PreliminaryInfoScreen() {
   };
 
   const saveCurrentStep2ToSession = (values: PreliminaryInfoFormValues) => {
+    const recommendationData = loanRecommendationResult?.data;
+    const paymentMethod =
+      getStringFromUnknownObject(selectedRecommendedProduct, ["paymentMethod"]) ||
+      getStringFromUnknownObject(recommendationData, ["paymentMethod"]);
+    const firstPaymentDate =
+      getStringFromUnknownObject(selectedRecommendedProduct, [
+        "firstPaymentDate",
+        "firstDueDate",
+        "firstPaymentDueDate",
+      ]) ||
+      getStringFromUnknownObject(recommendationData, [
+        "firstPaymentDate",
+        "firstDueDate",
+        "firstPaymentDueDate",
+      ]);
+    const monthlyPaymentDay =
+      getNumberFromUnknownObject(selectedRecommendedProduct, [
+        "monthlyPaymentDay",
+      ]) ||
+      getNumberFromUnknownObject(recommendationData, ["monthlyPaymentDay"]);
+    const processingBranch =
+      getStringFromUnknownObject(selectedRecommendedProduct, [
+        "processingBranch",
+        "branchCode",
+        "branchName",
+      ]) ||
+      getStringFromUnknownObject(recommendationData, [
+        "processingBranch",
+        "branchCode",
+        "branchName",
+      ]);
+
     const nextSessionData = {
       ...values,
       monthlyIncome: getDigitsOnly(values.monthlyIncome),
@@ -1255,9 +1294,13 @@ function PreliminaryInfoScreen() {
       selectedProductCode:
         selectedRecommendedProduct?.productCode || selectedProductCode,
       recommendedProductCode:
-        loanRecommendationResult?.data?.recommendedProductCode ||
+        recommendationData?.recommendedProductCode ||
         selectedRecommendedProduct?.productCode ||
         "",
+      paymentMethod,
+      firstPaymentDate,
+      monthlyPaymentDay: monthlyPaymentDay > 0 ? String(monthlyPaymentDay) : "",
+      processingBranch,
       applicationCode: getCurrentApplicationCode(),
       loanApplicationCode: getCurrentApplicationCode(),
     } as unknown as Parameters<typeof saveStep2PreliminaryInfo>[0];
@@ -1532,12 +1575,7 @@ function PreliminaryInfoScreen() {
           );
         }
 
-        const products = (response.data?.products || []).map((product) => ({
-          ...product,
-          productMaxLoanAmount:
-            product.productMaxLoanAmount ?? product.maxLoanAmount,
-          tenor: product.tenor ?? Number(watchedTerm),
-        }));
+        const products = response.data?.products || [];
 
         setLoanRecommendationResult(response);
         setLoanRecommendation((response.data || response) as Record<string, unknown>);
@@ -2038,9 +2076,6 @@ function PreliminaryInfoScreen() {
                   selectedProductCode={selectedProductCode}
                   selectedTerm={selectedTerm}
                   termOptions={loanTermOptions}
-                  requestedLoanAmount={parseCurrencyToNumber(
-                    form.watch("desiredLoanAmount"),
-                  )}
                   isLoading={isLoanRecommendationLoading}
                   error={loanRecommendationError}
                   onSelectProduct={setSelectedProductCode}

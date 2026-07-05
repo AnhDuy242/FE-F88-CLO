@@ -2,28 +2,14 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ChangeEvent } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { format, isValid, parse } from "date-fns";
 
-import {
-  Calendar as CalendarIcon,
-  DocumentText,
-  Gallery,
-  Refresh,
-  Trash,
-  User,
-} from "iconsax-react";
+import { DocumentText, Gallery, Refresh, Trash, User } from "iconsax-react";
 
+import { AppDatePicker } from "@/components/shared/AppDatePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Calendar } from "@/components/ui/calendar";
 import { toast } from "@/components/ui/toast";
-
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 
 import {
   Form,
@@ -33,6 +19,10 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  normalizeDateForDisplay,
+  parseDisplayDateToApi,
+} from "@/lib/date";
 
 import { CCCDUploadBox } from "@/features/customer-identify/components/CCCDUploadBox";
 import { CustomerIdentifyBreadcrumb } from "@/features/customer-identify/components/CustomerIdentifyBreadcrumb";
@@ -72,61 +62,13 @@ const ACCEPTED_IMAGE_TYPES = [
   "image/jpg",
 ];
 
-const BIRTH_YEAR_START = 1900;
-const BIRTH_DEFAULT_YEAR = 2000;
-const MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => ({
-  value: index,
-  label: `Tháng ${index + 1}`,
-}));
-
 type OcrStatus = {
   type: "success" | "error";
   message: string;
 };
 
 function convertDateToApiFormat(value?: string) {
-  if (!value) return "";
-
-  const trimmedValue = value.trim();
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
-    return trimmedValue;
-  }
-
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmedValue)) {
-    const [day, month, year] = trimmedValue.split("/");
-
-    return `${year}-${month}-${day}`;
-  }
-
-  return trimmedValue;
-}
-
-function getBirthYearOptions() {
-  const currentYear = new Date().getFullYear();
-
-  return Array.from(
-    { length: currentYear - BIRTH_YEAR_START + 1 },
-    (_, index) => currentYear - index,
-  );
-}
-
-function getInitialBirthCalendarMonth(value?: string) {
-  const apiDateValue = convertDateToApiFormat(value);
-
-  if (apiDateValue) {
-    const parsedDate = parse(apiDateValue, "yyyy-MM-dd", new Date());
-
-    if (isValid(parsedDate)) {
-      return parsedDate;
-    }
-  }
-
-  return new Date(BIRTH_DEFAULT_YEAR, 0, 1);
-}
-
-function buildBirthCalendarMonth(year: number, month: number) {
-  return new Date(year, month, 1);
+  return parseDisplayDateToApi(value) || "";
 }
 
 function buildImageMeta(file: File) {
@@ -343,15 +285,11 @@ function CustomerIdentifyScreen() {
     reValidateMode: "onChange",
     defaultValues: {
       fullName: step1CustomerIdentify.fullName || "",
-      dateOfBirth: convertDateToApiFormat(step1CustomerIdentify.dateOfBirth),
+      dateOfBirth: normalizeDateForDisplay(step1CustomerIdentify.dateOfBirth),
       phoneNumber: step1CustomerIdentify.phoneNumber || "",
       identityNumber: step1CustomerIdentify.identityNumber || "",
     },
   });
-
-  const [birthCalendarMonth, setBirthCalendarMonth] = useState<Date>(() =>
-    getInitialBirthCalendarMonth(step1CustomerIdentify.dateOfBirth),
-  );
 
   useEffect(() => {
     setCurrentStep(CURRENT_STEP);
@@ -377,18 +315,15 @@ function CustomerIdentifyScreen() {
   };
 
   const applyOcrDataToForm = (ocrData: CustomerOcrData) => {
-    const formattedDateOfBirth = convertDateToApiFormat(ocrData.dateOfBirth);
-
-    if (formattedDateOfBirth) {
-      setBirthCalendarMonth(getInitialBirthCalendarMonth(formattedDateOfBirth));
-    }
+    const displayDateOfBirth = normalizeDateForDisplay(ocrData.dateOfBirth);
+    const formattedDateOfBirth = convertDateToApiFormat(displayDateOfBirth);
 
     form.setValue("fullName", ocrData.fullName || "", {
       shouldValidate: true,
       shouldDirty: true,
     });
 
-    form.setValue("dateOfBirth", formattedDateOfBirth, {
+    form.setValue("dateOfBirth", displayDateOfBirth, {
       shouldValidate: true,
       shouldDirty: true,
     });
@@ -606,7 +541,6 @@ function CustomerIdentifyScreen() {
     setOcrStatus(null);
     setResult(null);
     setPendingOcrData(null);
-    setBirthCalendarMonth(new Date(BIRTH_DEFAULT_YEAR, 0, 1));
 
     clearStep1CustomerIdentify();
   };
@@ -808,10 +742,22 @@ function CustomerIdentifyScreen() {
                               className={[
                                 "h-11",
                                 hasPendingOcrFill
-                                  ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
+                                  ? "border-[#b7e4c7] bg-[#e8f8ee]"
                                   : "",
                               ].join(" ")}
-                              {...field}
+                              value={field.value || ""}
+                              name={field.name}
+                              ref={field.ref}
+                              onChange={field.onChange}
+                              onBlur={(event) => {
+                                const trimmedValue = event.target.value.trim();
+
+                                if (trimmedValue !== event.target.value) {
+                                  field.onChange(trimmedValue);
+                                }
+
+                                field.onBlur();
+                              }}
                             />
                           </FormControl>
                           <FormMessage className="text-red-500" />
@@ -822,148 +768,25 @@ function CustomerIdentifyScreen() {
                     <FormField
                       control={form.control}
                       name="dateOfBirth"
-                      render={({ field }) => {
-                        const apiDateValue = convertDateToApiFormat(field.value);
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Ngày sinh *</FormLabel>
 
-                        const parsedDate = apiDateValue
-                          ? parse(apiDateValue, "yyyy-MM-dd", new Date())
-                          : undefined;
+                          <FormControl>
+                            <AppDatePicker
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              placeholder="Chọn ngày sinh"
+                              autoFilled={hasPendingOcrFill}
+                              buttonClassName="h-11 w-full justify-between rounded-lg border px-3 text-left transition-colors"
+                              maxYear={new Date().getFullYear()}
+                              disabledDate={(date) => date > new Date()}
+                            />
+                          </FormControl>
 
-                        const selectedDate =
-                          parsedDate && isValid(parsedDate)
-                            ? parsedDate
-                            : undefined;
-
-                        const currentMonth = birthCalendarMonth.getMonth();
-                        const currentYear = birthCalendarMonth.getFullYear();
-
-                        return (
-                          <FormItem>
-                            <FormLabel>Ngày sinh *</FormLabel>
-
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <FormControl>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className={[
-                                      "h-11 w-full justify-between rounded-lg border px-3 text-left transition-colors",
-                                      selectedDate
-                                        ? "border-[#cbd5e1] bg-white font-normal text-[#111827]"
-                                        : "border-[#cbd5e1] bg-white font-normal text-[#94a3b8]",
-                                      hasPendingOcrFill && selectedDate
-                                        ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
-                                        : "",
-                                    ].join(" ")}
-                                  >
-                                    <span>
-                                      {selectedDate
-                                        ? format(selectedDate, "dd/MM/yyyy")
-                                        : "Chọn ngày sinh"}
-                                    </span>
-
-                                    <CalendarIcon
-                                      size={18}
-                                      color="currentColor"
-                                      variant="Outline"
-                                    />
-                                  </Button>
-                                </FormControl>
-                              </PopoverTrigger>
-
-                              <PopoverContent
-                                align="start"
-                                sideOffset={8}
-                                className="z-[9999] w-auto rounded-xl border border-[#dbe5dd] bg-white p-0 shadow-xl"
-                              >
-                                <div className="rounded-xl bg-white">
-                                  <div className="flex items-center gap-3 border-b border-[#e5e7eb] px-3 py-3">
-                                    <select
-                                      value={currentMonth}
-                                      onChange={(event) => {
-                                        const nextMonth = Number(
-                                          event.target.value,
-                                        );
-
-                                        setBirthCalendarMonth(
-                                          buildBirthCalendarMonth(
-                                            currentYear,
-                                            nextMonth,
-                                          ),
-                                        );
-                                      }}
-                                      className="h-9 rounded-lg border border-[#dbe5dd] bg-white px-3 text-sm font-medium text-[#111827] outline-none focus:border-[#009b3a]"
-                                    >
-                                      {MONTH_OPTIONS.map((month) => (
-                                        <option
-                                          key={month.value}
-                                          value={month.value}
-                                        >
-                                          {month.label}
-                                        </option>
-                                      ))}
-                                    </select>
-
-                                    <select
-                                      value={currentYear}
-                                      onChange={(event) => {
-                                        const nextYear = Number(
-                                          event.target.value,
-                                        );
-
-                                        setBirthCalendarMonth(
-                                          buildBirthCalendarMonth(
-                                            nextYear,
-                                            currentMonth,
-                                          ),
-                                        );
-                                      }}
-                                      className="h-9 rounded-lg border border-[#dbe5dd] bg-white px-3 text-sm font-medium text-[#111827] outline-none focus:border-[#009b3a]"
-                                    >
-                                      {getBirthYearOptions().map((year) => (
-                                        <option key={year} value={year}>
-                                          {year}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-
-                                  <div className="p-3">
-                                    <Calendar
-                                      mode="single"
-                                      month={birthCalendarMonth}
-                                      onMonthChange={setBirthCalendarMonth}
-                                      selected={selectedDate}
-                                      onSelect={(date) => {
-                                        if (!date) {
-                                          field.onChange("");
-                                          return;
-                                        }
-
-                                        const nextDate = format(
-                                          date,
-                                          "yyyy-MM-dd",
-                                        );
-
-                                        field.onChange(nextDate);
-                                        setBirthCalendarMonth(date);
-                                      }}
-                                      disabled={(date) =>
-                                        date > new Date() ||
-                                        date < new Date("1900-01-01")
-                                      }
-                                      className="rounded-lg bg-white"
-                                    />
-                                  </div>
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-
-                            <FormMessage className="text-red-500" />
-                          </FormItem>
-                        );
-                      }}
+                          <FormMessage className="text-red-500" />
+                        </FormItem>
+                      )}
                     />
 
                     <FormField
@@ -978,7 +801,7 @@ function CustomerIdentifyScreen() {
                               className={[
                                 "h-11",
                                 hasPendingOcrFill
-                                  ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
+                                  ? "border-[#b7e4c7] bg-[#e8f8ee]"
                                   : "",
                               ].join(" ")}
                               value={field.value || ""}
@@ -1014,7 +837,7 @@ function CustomerIdentifyScreen() {
                               className={[
                                 "h-11",
                                 hasPendingOcrFill
-                                  ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
+                                  ? "border-[#b7e4c7] bg-[#e8f8ee]"
                                   : "",
                               ].join(" ")}
                               value={field.value || ""}

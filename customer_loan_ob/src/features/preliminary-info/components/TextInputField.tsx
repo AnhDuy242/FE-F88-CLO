@@ -65,7 +65,15 @@ export function TextInputField({
                 placeholder={placeholder}
                 maxLength={maxLength}
                 inputMode={inputMode}
-                onBlur={field.onBlur}
+                onBlur={(event) => {
+                  const trimmedValue = event.target.value.trim();
+
+                  if (trimmedValue !== event.target.value) {
+                    field.onChange(trimmedValue);
+                  }
+
+                  field.onBlur();
+                }}
                 onChange={(event) => {
                   let nextValue = event.target.value;
 
@@ -87,7 +95,7 @@ export function TextInputField({
                 className={[
                   "h-12 rounded-xl border border-[#dbe5dd] bg-white px-4 text-base text-[#111827] shadow-sm placeholder:text-[#94a3b8] focus-visible:ring-1 focus-visible:ring-[#009b3a]",
                   autoFilled
-                    ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
+                    ? "border-[#b7e4c7] bg-[#e8f8ee]"
                     : "",
                   className,
                 ]

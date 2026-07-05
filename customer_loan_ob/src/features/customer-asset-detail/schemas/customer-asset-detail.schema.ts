@@ -66,7 +66,10 @@ export const customerAssetDetailSchema = z.object({
     ),
   disbursementBankCode: z.string().min(1, "Vui lòng chọn ngân hàng"),
   disbursementAccountNumber: z.string().min(1, "Vui lòng nhập số tài khoản"),
-  disbursementAccountName: z.string().min(1, "Vui lòng nhập chủ tài khoản"),
+  disbursementAccountName: z
+    .string()
+    .min(1, "Vui lòng nhập chủ tài khoản")
+    .refine(isValidVietnameseFullName, "Tên chủ tài khoản phải có ít nhất 2 từ và chỉ gồm chữ cái"),
   permanentAddress: z.string().min(1, "Vui lòng nhập địa chỉ thường trú"),
   currentAddress: z.string().min(1, "Vui lòng nhập địa chỉ hiện tại"),
 
@@ -98,14 +101,17 @@ export const customerAssetDetailSchema = z.object({
     .string()
     .min(1, "Vui lòng nhập số máy")
     .refine((value) => isValidVehicleIdentifier(value), "Số máy chỉ gồm chữ/số, 5-30 ký tự"),
-  vehicleOwnerName: z.string().min(1, "Vui lòng nhập tên chủ sở hữu"),
+  vehicleOwnerName: z
+    .string()
+    .min(1, "Vui lòng nhập tên chủ sở hữu")
+    .refine(isValidVietnameseFullName, "Tên chủ sở hữu phải có ít nhất 2 từ và chỉ gồm chữ cái"),
   registrationNumber: z.string().optional(),
   registrationIssueDate: z
     .string()
     .optional()
     .refine(
       isValidRegistrationDisplayDate,
-      "Ngày đăng ký xe phải có định dạng dd-mm-yyyy",
+      "Ngày đăng ký xe phải có định dạng dd/MM/yyyy",
     ),
 
   selectedLoanProductCode: z.string().optional(),
@@ -131,6 +137,12 @@ export const customerAssetDetailSchema = z.object({
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Vui lòng nhập họ tên người tham chiếu",
+        path: ["references", index, "fullName"],
+      });
+    } else if (!isValidVietnameseFullName(item.fullName)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Họ tên người tham chiếu phải có ít nhất 2 từ và chỉ gồm chữ cái",
         path: ["references", index, "fullName"],
       });
     }
@@ -197,3 +209,4 @@ export const customerAssetDetailSchema = z.object({
 export type CustomerAssetDetailFormValues = z.infer<
   typeof customerAssetDetailSchema
 >;
+

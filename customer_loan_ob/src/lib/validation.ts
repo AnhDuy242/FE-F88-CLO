@@ -18,7 +18,11 @@ export function isValidVietnameseFullName(value?: string) {
 
   const words = normalizedValue.split(" ");
 
-  return words.length >= 2 && words.every((word) => word.length >= 2);
+  return (
+    words.length >= 2 &&
+    normalizedValue.length >= 5 &&
+    words.some((word) => word.length >= 2)
+  );
 }
 
 export function isValidCccd(value?: string) {
@@ -101,6 +105,6 @@ export function isValidRegistrationDisplayDate(value?: string) {
 
   return (
     normalizedValue === "" ||
-    (/^\d{2}-\d{2}-\d{4}$/.test(normalizedValue) && isValidPastDate(normalizedValue))
+    (/^\d{2}\/\d{2}\/\d{4}$/.test(normalizedValue) && isValidPastDate(normalizedValue))
   );
 }

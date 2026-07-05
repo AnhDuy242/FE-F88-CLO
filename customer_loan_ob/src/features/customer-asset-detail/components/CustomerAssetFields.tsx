@@ -2,15 +2,7 @@ import type { InputHTMLAttributes } from "react";
 import { useState } from "react";
 import type { FieldPath, UseFormReturn } from "react-hook-form";
 
-import { Input } from "@/components/ui/input";
-import { formatCurrencyInput } from "@/lib/currency";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { AppDatePicker } from "@/components/shared/AppDatePicker";
 import {
   FormControl,
   FormField,
@@ -18,6 +10,15 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { formatCurrencyInput } from "@/lib/currency";
 
 import type { CustomerAssetDetailFormValues } from "@/features/customer-asset-detail/schemas/customer-asset-detail.schema";
 import type { ReferenceOption } from "@/features/customer-asset-detail/types/customer-asset-detail.type";
@@ -109,9 +110,7 @@ export function CustomerAssetTextField({
                 }}
                 className={[
                   "h-12 rounded-xl border border-[#dbe5dd] bg-white px-4 text-base text-[#111827] shadow-sm transition-colors placeholder:text-[#94a3b8] focus-visible:ring-1 focus-visible:ring-[#009b3a]",
-                  autoFilled
-                    ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
-                    : "",
+                  autoFilled ? "border-[#b7e4c7] bg-[#e8f8ee]" : "",
                 ].join(" ")}
               />
             </FormControl>
@@ -191,6 +190,48 @@ export function CustomerAssetSelectField({
               )}
             </SelectContent>
           </Select>
+
+          <FormMessage className="text-red-500" />
+        </FormItem>
+      )}
+    />
+  );
+}
+
+type DateFieldProps = FieldProps & {
+  autoFilled?: boolean;
+  maxYear?: number;
+};
+
+export function CustomerAssetDateField({
+  form,
+  name,
+  label,
+  required,
+  placeholder,
+  autoFilled,
+  maxYear = new Date().getFullYear(),
+}: DateFieldProps) {
+  return (
+    <FormField
+      control={form.control}
+      name={name}
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel>
+            {label} {required && <span className="text-red-500">*</span>}
+          </FormLabel>
+
+          <FormControl>
+            <AppDatePicker
+              value={typeof field.value === "string" ? field.value : ""}
+              onChange={field.onChange}
+              placeholder={placeholder || "Chọn ngày"}
+              autoFilled={autoFilled}
+              maxYear={maxYear}
+              disabledDate={(date) => date > new Date()}
+            />
+          </FormControl>
 
           <FormMessage className="text-red-500" />
         </FormItem>

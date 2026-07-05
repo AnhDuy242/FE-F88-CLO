@@ -8,7 +8,6 @@ type LoanPackageSelectorProps = {
   selectedProductCode: string;
   selectedTerm: string;
   termOptions: ReferenceOption[];
-  requestedLoanAmount: number;
   isLoading?: boolean;
   error?: string;
   onSelectProduct: (productCode: string) => void;
@@ -16,15 +15,22 @@ type LoanPackageSelectorProps = {
 };
 
 function formatPercent(value?: number) {
-  const safeValue = Number(value || 0);
+  const safeValue = Number(value);
+
+  if (!Number.isFinite(safeValue) || safeValue <= 0) return "Chưa có";
 
   return `${safeValue.toLocaleString("vi-VN")}%`;
 }
 
-function getProductDisplayAmount(
-  product: LoanProductRecommendationProduct | undefined,
-  requestedLoanAmount: number,
-) {
+function formatOptionalCurrency(value?: number) {
+  const safeValue = Number(value);
+
+  return Number.isFinite(safeValue) && safeValue > 0
+    ? formatCurrencyVnd(safeValue)
+    : "Chưa có";
+}
+
+function getProductDisplayAmount(product: LoanProductRecommendationProduct | undefined) {
   if (!product) return 0;
 
   return (
@@ -32,7 +38,6 @@ function getProductDisplayAmount(
     Number(product.loanAmountCap) ||
     Number(product.effectiveMaxLoanAmount) ||
     Number(product.productMaxLoanAmount) ||
-    requestedLoanAmount ||
     0
   );
 }
@@ -59,9 +64,8 @@ function getProductInterestRate(
 
 function getProductTenor(
   product: LoanProductRecommendationProduct | undefined,
-  selectedTerm: string,
 ) {
-  return String(product?.tenor || selectedTerm || "");
+  return String(product?.tenor || "");
 }
 
 export function LoanPackageSelector({
@@ -70,7 +74,6 @@ export function LoanPackageSelector({
   selectedProductCode,
   selectedTerm,
   termOptions,
-  requestedLoanAmount,
   isLoading = false,
   error = "",
   onSelectProduct,
@@ -81,14 +84,11 @@ export function LoanPackageSelector({
     products.find((product) => product.recommended) ||
     products[0];
 
-  const selectedDisplayAmount = getProductDisplayAmount(
-    selectedProduct,
-    requestedLoanAmount,
-  );
+  const selectedDisplayAmount = getProductDisplayAmount(selectedProduct);
 
   const selectedInterestRate = getProductInterestRate(selectedProduct);
 
-  const selectedTenor = getProductTenor(selectedProduct, selectedTerm);
+  const selectedTenor = getProductTenor(selectedProduct);
 
   return (
     <div>
@@ -190,22 +190,23 @@ export function LoanPackageSelector({
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-[#64748b]">Hạn mức hiệu lực</span>
                       <span className="font-bold text-[#111827]">
-                        {formatCurrencyVnd(productMaxAmount)}
+                        {formatOptionalCurrency(productMaxAmount)}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-[#64748b]">Khoảng vay</span>
                       <span className="font-bold text-[#111827]">
-                        {formatCurrencyVnd(product.minLoanAmount)} -{" "}
-                        {formatCurrencyVnd(productMaxAmount)}
+                        {Number(product.minLoanAmount) > 0 && productMaxAmount > 0
+                          ? `${formatCurrencyVnd(product.minLoanAmount)} - ${formatCurrencyVnd(productMaxAmount)}`
+                          : "Chưa có"}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-[#64748b]">Kỳ hạn</span>
                       <span className="font-bold text-[#111827]">
-                        {product.tenor || selectedTerm || "-"} tháng
+                        {product.tenor ? `${product.tenor} tháng` : "Chưa có"}
                       </span>
                     </div>
                   </div>
@@ -230,7 +231,7 @@ export function LoanPackageSelector({
               <div>
                 <p className="text-sm text-white/80">Số tiền đề xuất</p>
                 <p className="mt-2 text-lg font-bold">
-                  {formatCurrencyVnd(selectedDisplayAmount)}
+                  {formatOptionalCurrency(selectedDisplayAmount)}
                 </p>
               </div>
 
@@ -239,7 +240,7 @@ export function LoanPackageSelector({
                 <p className="mt-2 text-lg font-bold">
                   {selectedInterestRate
                     ? `${selectedInterestRate.toLocaleString("vi-VN")}%/tháng`
-                    : "-"}
+                    : "Chưa có"}
                 </p>
               </div>
 
@@ -263,7 +264,7 @@ export function LoanPackageSelector({
                     ))
                   ) : (
                     <option value={selectedTerm} className="text-[#111827]">
-                      {selectedTerm || "-"} tháng
+                      {selectedTerm ? `${selectedTerm} tháng` : "Chưa có"}
                     </option>
                   )}
                 </select>
@@ -274,21 +275,21 @@ export function LoanPackageSelector({
               <div>
                 <p className="text-sm text-white/80">Gốc hàng tháng</p>
                 <p className="mt-2 text-lg font-bold">
-                  {formatCurrencyVnd(selectedProduct?.principalPerMonth)}
+                  {formatOptionalCurrency(selectedProduct?.principalPerMonth)}
                 </p>
               </div>
 
               <div>
                 <p className="text-sm text-white/80">Lãi hàng tháng</p>
                 <p className="mt-2 text-lg font-bold">
-                  {formatCurrencyVnd(selectedProduct?.interestPerMonth)}
+                  {formatOptionalCurrency(selectedProduct?.interestPerMonth)}
                 </p>
               </div>
 
               <div>
                 <p className="text-sm text-white/80">Tạm tính hàng tháng</p>
                 <p className="mt-2 text-lg font-bold">
-                  {formatCurrencyVnd(selectedProduct?.estimatedMonthlyPayment)}
+                  {formatOptionalCurrency(selectedProduct?.estimatedMonthlyPayment)}
                 </p>
               </div>
             </div>

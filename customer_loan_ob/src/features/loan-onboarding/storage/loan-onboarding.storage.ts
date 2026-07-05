@@ -71,6 +71,12 @@ export type Step2PreliminaryInfoStorage = {
   selectedTerm?: string;
   selectedProductCode?: string;
   recommendedProductCode?: string;
+  paymentMethod?: string;
+  firstPaymentDate?: string;
+  monthlyPaymentDay?: string;
+  processingBranch?: string;
+  branchCode?: string;
+  branchName?: string;
 
   applicationCode?: string;
   loanApplicationCode?: string;
@@ -142,6 +148,12 @@ export type Step2PreliminaryInfoState = {
   selectedTerm: string;
   selectedProductCode: string;
   recommendedProductCode: string;
+  paymentMethod: string;
+  firstPaymentDate: string;
+  monthlyPaymentDay: string;
+  processingBranch: string;
+  branchCode: string;
+  branchName: string;
 
   [key: string]: unknown;
 };
@@ -304,7 +316,7 @@ const initialStep2PreliminaryInfo: Step2PreliminaryInfoState = {
   monthlyIncome: "",
   loanPurpose: "",
   desiredLoanAmount: "",
-  term: "12",
+  term: "",
 
   assetType: "",
   brand: "",
@@ -315,9 +327,15 @@ const initialStep2PreliminaryInfo: Step2PreliminaryInfoState = {
 
   selectedDeductionIds: [],
   selectedPackageId: "promotion",
-  selectedTerm: "12",
+  selectedTerm: "",
   selectedProductCode: "",
   recommendedProductCode: "",
+  paymentMethod: "",
+  firstPaymentDate: "",
+  monthlyPaymentDay: "",
+  processingBranch: "",
+  branchCode: "",
+  branchName: "",
 };
 
 export const initialReferencePersons: ReferencePersonState[] = Array.from(
@@ -825,7 +843,7 @@ export function saveStep2PreliminaryInfo(data: Step2PreliminaryInfoStorage) {
     monthlyIncome: data.monthlyIncome || "",
     loanPurpose: data.loanPurpose || "",
     desiredLoanAmount: data.desiredLoanAmount || "",
-    term: data.term || "12",
+    term: data.term || "",
     assetType: data.assetType || "",
     brand: data.brand || "",
     model: data.model || "",
@@ -834,9 +852,15 @@ export function saveStep2PreliminaryInfo(data: Step2PreliminaryInfoStorage) {
     color: data.color || "",
     selectedDeductionIds: data.selectedDeductionIds || [],
     selectedPackageId: data.selectedPackageId || "promotion",
-    selectedTerm: data.selectedTerm || data.term || "12",
+    selectedTerm: data.selectedTerm || data.term || "",
     selectedProductCode: data.selectedProductCode || "",
     recommendedProductCode: data.recommendedProductCode || "",
+    paymentMethod: data.paymentMethod || "",
+    firstPaymentDate: data.firstPaymentDate || "",
+    monthlyPaymentDay: data.monthlyPaymentDay || "",
+    processingBranch: data.processingBranch || "",
+    branchCode: data.branchCode || "",
+    branchName: data.branchName || "",
   });
 }
 

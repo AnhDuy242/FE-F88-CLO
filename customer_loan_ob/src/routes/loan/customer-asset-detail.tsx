@@ -8,11 +8,16 @@ import { Button } from "@/components/ui/button";
 import { Form } from "@/components/ui/form";
 import { toast } from "@/components/ui/toast";
 import { getCurrencyDigits, parseCurrencyToNumber } from "@/lib/currency";
+import {
+  normalizeDateForDisplay,
+  parseDisplayDateToApi,
+} from "@/lib/date";
 
 import { CustomerIdentifyBreadcrumb } from "@/features/customer-identify/components/CustomerIdentifyBreadcrumb";
 import { LoanOnboardingStepper } from "@/features/customer-identify/components/LoanOnboardingStepper";
 import { SectionCard } from "@/features/preliminary-info/components/SectionCard";
 import {
+  CustomerAssetDateField,
   CustomerAssetSelectField,
   CustomerAssetTextField,
 } from "@/features/customer-asset-detail/components/CustomerAssetFields";
@@ -91,27 +96,19 @@ function getDigitsOnly(value?: string) {
 }
 
 function normalizeRegistrationDateForDisplay(value?: string) {
-  const trimmedValue = (value || "").trim();
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
-    const [year, month, day] = trimmedValue.split("-");
-
-    return `${day}-${month}-${year}`;
-  }
-
-  return trimmedValue;
+  return normalizeDateForDisplay(value);
 }
 
 function normalizeRegistrationDateForApi(value?: string) {
+  return parseDisplayDateToApi(value);
+}
+
+function formatLoanDateForPanel(value?: string) {
   const trimmedValue = (value || "").trim();
 
-  if (/^\d{2}-\d{2}-\d{4}$/.test(trimmedValue)) {
-    const [day, month, year] = trimmedValue.split("-");
+  if (!trimmedValue) return "";
 
-    return `${year}-${month}-${day}`;
-  }
-
-  return trimmedValue;
+  return normalizeDateForDisplay(trimmedValue) || trimmedValue;
 }
 
 function normalizeGender(value?: string) {
@@ -343,14 +340,15 @@ function CustomerAssetDetailScreen() {
         step1Identity.phoneNumber ||
         "",
       dateOfBirth:
-        step3Data?.dateOfBirth ||
-        getStringFromUnknownObject(selectedCustomerData, [
-          "dateOfBirth",
-          "birthDate",
-        ]) ||
-        step2PreliminaryInfo.dateOfBirth ||
-        step1Identity.dateOfBirth ||
-        "",
+        normalizeDateForDisplay(
+          step3Data?.dateOfBirth ||
+            getStringFromUnknownObject(selectedCustomerData, [
+              "dateOfBirth",
+              "birthDate",
+            ]) ||
+            step2PreliminaryInfo.dateOfBirth ||
+            step1Identity.dateOfBirth,
+        ) || "",
       gender:
         step3Data?.gender ||
         normalizeGender(
@@ -476,6 +474,61 @@ function CustomerAssetDetailScreen() {
     useState<Record<string, unknown> | null>(null);
   const recommendationSignatureRef = useRef("");
 
+  const storedPaymentMethod =
+    getStringFromUnknownObject(step2PreliminaryInfo, [
+      "paymentMethod",
+      "paymentMethodCode",
+      "repaymentMethod",
+    ]) ||
+    getStringFromUnknownObject(selectedLoanProductData, ["paymentMethod"]) ||
+    getStringFromUnknownObject(storedLoanRecommendation, ["paymentMethod"]);
+  const storedMonthlyPaymentDay =
+    getNumberFromUnknownObject(step2PreliminaryInfo, ["monthlyPaymentDay"]) ||
+    getNumberFromUnknownObject(selectedLoanProductData, ["monthlyPaymentDay"]) ||
+    getNumberFromUnknownObject(storedLoanRecommendation, ["monthlyPaymentDay"]);
+  const storedProcessingBranch =
+    getStringFromUnknownObject(step2PreliminaryInfo, [
+      "processingBranch",
+      "branchName",
+      "branchCode",
+    ]) ||
+    getStringFromUnknownObject(selectedCustomerData, [
+      "processingBranch",
+      "branchName",
+      "branchCode",
+    ]) ||
+    getStringFromUnknownObject(step1Identity, [
+      "processingBranch",
+      "branchName",
+      "branchCode",
+    ]) ||
+    getStringFromUnknownObject(selectedLoanProductData, [
+      "processingBranch",
+      "branchName",
+      "branchCode",
+    ]) ||
+    getStringFromUnknownObject(storedLoanRecommendation, [
+      "processingBranch",
+      "branchName",
+      "branchCode",
+    ]);
+  const storedFirstPaymentDate =
+    getStringFromUnknownObject(step2PreliminaryInfo, [
+      "firstPaymentDate",
+      "firstDueDate",
+      "firstPaymentDueDate",
+    ]) ||
+    getStringFromUnknownObject(selectedLoanProductData, [
+      "firstPaymentDate",
+      "firstDueDate",
+      "firstPaymentDueDate",
+    ]) ||
+    getStringFromUnknownObject(storedLoanRecommendation, [
+      "firstPaymentDate",
+      "firstDueDate",
+      "firstPaymentDueDate",
+    ]);
+
   const [genderOptions, setGenderOptions] = useState<ReferenceOption[]>([]);
   const [maritalStatusOptions, setMaritalStatusOptions] = useState<
     ReferenceOption[]
@@ -544,6 +597,10 @@ function CustomerAssetDetailScreen() {
           {
             requestedAmount,
             loanTermMonths,
+            paymentMethod: storedPaymentMethod || undefined,
+            monthlyPaymentDay:
+              storedMonthlyPaymentDay > 0 ? storedMonthlyPaymentDay : undefined,
+            processingBranch: storedProcessingBranch || undefined,
             limit: 3,
           },
         );
@@ -568,6 +625,9 @@ function CustomerAssetDetailScreen() {
   }, [
     applicationCode,
     step2PreliminaryInfo.desiredLoanAmount,
+    storedMonthlyPaymentDay,
+    storedPaymentMethod,
+    storedProcessingBranch,
     step2PreliminaryInfo.selectedTerm,
     step2PreliminaryInfo.term,
   ]);
@@ -1039,41 +1099,24 @@ function CustomerAssetDetailScreen() {
     step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0,
   );
   const paymentMethod =
-    getStringFromUnknownObject(finalOfferPreview, ["paymentMethod"]) ||
-    getStringFromUnknownObject(selectedLoanProductData, ["paymentMethod"]) ||
-    getStringFromUnknownObject(storedLoanRecommendation, ["paymentMethod"]);
-  const monthlyPaymentDay = getNumberFromUnknownObject(finalOfferPreview, [
-    "monthlyPaymentDay",
-  ]);
-  const firstPaymentDate =
+    storedPaymentMethod ||
+    getStringFromUnknownObject(finalOfferPreview, ["paymentMethod"]);
+  const monthlyPaymentDay =
+    storedMonthlyPaymentDay ||
+    getNumberFromUnknownObject(finalOfferPreview, ["monthlyPaymentDay"]);
+  const firstPaymentDateValue =
+    storedFirstPaymentDate ||
     getStringFromUnknownObject(finalOfferPreview, [
-      "firstPaymentDate",
-      "firstDueDate",
-      "firstPaymentDueDate",
-    ]) ||
-    (monthlyPaymentDay > 0 ? `Ngày ${monthlyPaymentDay} hàng tháng` : "") ||
-    getStringFromUnknownObject(selectedLoanProductData, [
-      "firstPaymentDate",
-      "firstDueDate",
-      "firstPaymentDueDate",
-    ]) ||
-    getStringFromUnknownObject(storedLoanRecommendation, [
       "firstPaymentDate",
       "firstDueDate",
       "firstPaymentDueDate",
     ]);
+  const firstPaymentDate =
+    formatLoanDateForPanel(firstPaymentDateValue) ||
+    (monthlyPaymentDay > 0 ? `Ngày ${monthlyPaymentDay} hàng tháng` : "");
   const processingBranch =
+    storedProcessingBranch ||
     getStringFromUnknownObject(finalOfferPreview, [
-      "processingBranch",
-      "branchCode",
-      "branchName",
-    ]) ||
-    getStringFromUnknownObject(selectedLoanProductData, [
-      "processingBranch",
-      "branchCode",
-      "branchName",
-    ]) ||
-    getStringFromUnknownObject(storedLoanRecommendation, [
       "processingBranch",
       "branchCode",
       "branchName",
@@ -1125,11 +1168,11 @@ function CustomerAssetDetailScreen() {
                         maxLength={11}
                         autoFilled={hasAutoFilledCustomerInfo}
                       />
-                      <CustomerAssetTextField
+                      <CustomerAssetDateField
                         form={form}
                         name="dateOfBirth"
                         label="Ngày sinh"
-                        placeholder="YYYY-MM-DD"
+                        placeholder="Chọn ngày sinh"
                         autoFilled={hasAutoFilledCustomerInfo}
                       />
                       <CustomerAssetSelectField
@@ -1449,11 +1492,11 @@ function CustomerAssetDetailScreen() {
                         placeholder="Nhập số đăng ký xe"
                         uppercase
                       />
-                      <CustomerAssetTextField
+                      <CustomerAssetDateField
                         form={form}
                         name="registrationIssueDate"
                         label="Ngày đăng ký xe"
-                        placeholder="dd-mm-yyyy"
+                        placeholder="Chọn ngày đăng ký xe"
                       />
                     </div>
                   </SectionCard>

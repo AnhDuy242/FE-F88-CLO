@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+﻿import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import type { ChangeEvent } from "react";
 import { useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, FileText, Upload } from "lucide-react";
@@ -6,6 +6,7 @@ import { AlertCircle, CheckCircle2, FileText, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { parseCurrencyToNumber } from "@/lib/currency";
+import { parseDisplayDateToApi } from "@/lib/date";
 import {
   Accordion,
   AccordionContent,
@@ -42,12 +43,16 @@ const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   "image/png",
   "image/webp",
   "application/pdf",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
 ]);
 
 type UploadSlot = {
   id: string;
   label: string;
   required?: boolean;
+  accept?: string;
 };
 
 type UploadGroup = {
@@ -80,11 +85,47 @@ const uploadGroups: UploadGroup[] = [
       { id: "vehicle-registration-back", label: "Cà vẹt mặt sau", required: true },
     ],
   },
-  { id: "asset-photos", title: "Ảnh tài sản", maxFiles: 7 },
-  { id: "customer-portrait", title: "Chân dung Khách hàng", maxFiles: 3 },
-  { id: "other-documents", title: "Chứng từ khác", maxFiles: 4 },
+  {
+    id: "asset-photos",
+    title: "Ảnh tài sản",
+    maxFiles: 7,
+    slots: [
+      { id: "asset-front", label: "Ảnh xe - Góc trước", required: true },
+      { id: "asset-back", label: "Ảnh xe - Góc sau", required: true },
+      { id: "asset-left", label: "Ảnh xe - Góc trái", required: true },
+      { id: "asset-right", label: "Ảnh xe - Góc phải", required: true },
+      { id: "frame-number", label: "Ảnh số khung" },
+      { id: "engine-number", label: "Ảnh số máy" },
+      { id: "odo", label: "Ảnh đồng hồ ODO" },
+    ],
+  },
+  {
+    id: "customer-portrait",
+    title: "Chân dung Khách hàng",
+    maxFiles: 3,
+    slots: [
+      { id: "portrait", label: "Ảnh chân dung khách hàng", required: true },
+      { id: "portrait-with-cccd", label: "Ảnh chân dung cầm CCCD" },
+      {
+        id: "portrait-video",
+        label: "Video chân dung Khách hàng",
+        required: true,
+        accept: "video/mp4,video/webm,video/quicktime",
+      },
+    ],
+  },
+  {
+    id: "other-documents",
+    title: "Chứng từ khác",
+    maxFiles: 4,
+    slots: [
+      { id: "income-proof", label: "Chứng minh thu nhập" },
+      { id: "residence-proof", label: "Sổ hộ khẩu / Giấy tạm trú" },
+      { id: "signed-contract", label: "Hợp đồng có chữ ký KH" },
+      { id: "reference-verification", label: "Phiếu xác minh người tham chiếu" },
+    ],
+  },
 ];
-
 function getStringFromRecord(source: unknown, keys: string[]) {
   if (!source || typeof source !== "object") return "";
 
@@ -122,24 +163,12 @@ function normalizeGender(value?: string) {
 function normalizeApiDate(value?: string) {
   const trimmedValue = (value || "").trim();
 
-  if (/^\d{2}-\d{2}-\d{4}$/.test(trimmedValue)) {
-    const [day, month, year] = trimmedValue.split("-");
-
-    return `${year}-${month}-${day}`;
-  }
-
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmedValue)) {
-    const [day, month, year] = trimmedValue.split("/");
-
-    return `${year}-${month}-${day}`;
-  }
-
-  return trimmedValue;
+  return parseDisplayDateToApi(trimmedValue) || trimmedValue;
 }
 
 function validateUploadFile(file: File) {
   if (!ALLOWED_UPLOAD_MIME_TYPES.has(file.type)) {
-    return "File upload chỉ hỗ trợ JPG, PNG, WEBP hoặc PDF.";
+    return "File upload chỉ hỗ trợ JPG, PNG, WEBP, PDF hoặc video MP4/WEBM/MOV.";
   }
 
   if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
@@ -273,7 +302,10 @@ function UploadDocumentsScreen() {
       }
 
       const currentItems = documentsByGroup[group.id] || [];
-      const remainingSlots = Math.max(group.maxFiles - currentItems.length, 0);
+      const currentItemsForLimit = slot
+        ? currentItems.filter((item) => item.documentType !== slot.id)
+        : currentItems;
+      const remainingSlots = Math.max(group.maxFiles - currentItemsForLimit.length, 0);
 
       if (remainingSlots <= 0) {
         toast.error(`Nhóm ${group.title} đã đạt tối đa ${group.maxFiles} file.`);
@@ -283,21 +315,25 @@ function UploadDocumentsScreen() {
 
       setDocumentsByGroup((current) => {
         const latestItems = current[group.id] || [];
-        const latestRemainingSlots = Math.max(group.maxFiles - latestItems.length, 0);
-        const nextItems = files
+        const baseItems = slot
+          ? latestItems.filter((item) => item.documentType !== slot.id)
+          : latestItems;
+        const latestRemainingSlots = Math.max(group.maxFiles - baseItems.length, 0);
+        const nextFiles = slot ? files.slice(0, 1) : files;
+        const nextItems = nextFiles
           .slice(0, latestRemainingSlots)
           .map((file) =>
             buildDocumentMeta(
               file,
               group.id,
-              slot?.id || `${group.id}-${latestItems.length + 1}`,
+              slot?.id || `${group.id}-${baseItems.length + 1}`,
               Boolean(slot?.required),
             ),
           );
 
         return {
           ...current,
-          [group.id]: [...latestItems, ...nextItems],
+          [group.id]: [...baseItems, ...nextItems],
         };
       });
       toast.success("Đã thêm file chứng từ vào phiên làm việc.");
@@ -341,6 +377,21 @@ function UploadDocumentsScreen() {
 
     if (!selectedProductCode) {
       errors.push("Chưa chọn gói vay cuối cùng.");
+    }
+
+    const missingRequiredSlots = uploadGroups.flatMap((group) => {
+      return (group.slots || [])
+        .filter((slot) => slot.required)
+        .filter((slot) => {
+          return !(documentsByGroup[group.id] || []).some(
+            (file) => file.documentType === slot.id,
+          );
+        })
+        .map((slot) => slot.label);
+    });
+
+    if (missingRequiredSlots.length > 0) {
+      errors.push(`Thiếu chứng từ bắt buộc: ${missingRequiredSlots.join(", ")}.`);
     }
 
     return errors;
@@ -597,7 +648,9 @@ function UploadDocumentsScreen() {
                                     {slot.label} {slot.required && <span className="text-red-500">*</span>}
                                   </p>
                                   <p className="mt-1 text-sm text-[#64748b]">
-                                    JPG, PNG, WEBP hoặc PDF. File chỉ giữ tạm trên màn này.
+                                    {slot.accept?.startsWith("video")
+                                      ? "MP4, WEBM hoặc MOV. File chỉ giữ tạm trên màn này."
+                                      : "JPG, PNG, WEBP hoặc PDF. File chỉ giữ tạm trên màn này."}
                                   </p>
                                 </div>
 
@@ -606,7 +659,7 @@ function UploadDocumentsScreen() {
                                     fileInputRefs.current[inputKey] = element;
                                   }}
                                   type="file"
-                                  accept="image/*,.pdf"
+                                  accept={slot.accept || "image/*,.pdf"}
                                   multiple={!group.slots}
                                   className="hidden"
                                   onChange={handleFilesChange(group, slot)}
@@ -671,7 +724,17 @@ function UploadDocumentsScreen() {
                   <AlertCircle className="mt-0.5 h-5 w-5 text-[#8a6d00]" />
                   <div>
                     <p className="font-bold text-[#111827]">Chưa có API eKYC/face match để đối chiếu tự động.</p>
-                    <p className="mt-1 text-sm text-[#64748b]">
+                    <div className="mt-3 space-y-2 text-sm text-[#64748b]">
+                      <div className="flex items-center justify-between rounded-lg bg-white px-4 py-3">
+                        <span>Đối chiếu khuôn mặt CCCD với ảnh chân dung</span>
+                        <span className="font-semibold text-[#8a6d00]">Chưa có dữ liệu</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg bg-white px-4 py-3">
+                        <span>Liveness Detection</span>
+                        <span className="font-semibold text-[#8a6d00]">Chưa có dữ liệu</span>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-sm text-[#64748b]">
                       Màn hình giữ vị trí kết quả để ghép BE sau. Không hiển thị kết quả nghiệp vụ giả.
                     </p>
                   </div>
@@ -716,3 +779,4 @@ function UploadDocumentsScreen() {
     </div>
   );
 }
+

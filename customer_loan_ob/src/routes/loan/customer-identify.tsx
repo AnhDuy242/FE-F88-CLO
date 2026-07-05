@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
+import { toast } from "@/components/ui/toast";
 
 import {
   Popover,
@@ -43,7 +44,6 @@ import {
 } from "@/features/customer-identify/schemas/customer-identify.schema";
 
 import { customerIdentifyApi } from "@/features/customer-identify/api/customer-identify.api";
-import { preliminaryInfoApi } from "@/features/preliminary-info/api/preliminary-info.api";
 
 import {
   useLoanOnboardingStore,
@@ -74,12 +74,6 @@ const ACCEPTED_IMAGE_TYPES = [
 
 const BIRTH_YEAR_START = 1900;
 const BIRTH_DEFAULT_YEAR = 2000;
-const DEFAULT_LOAN_APPLICATION_CONTEXT = {
-  applicationChannel: "PGD",
-  branchCode: "BR-001",
-  staffCode: "staff_001",
-};
-
 const MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => ({
   value: index,
   label: `Tháng ${index + 1}`,
@@ -306,9 +300,7 @@ function CustomerIdentifyScreen() {
   const navigate = useNavigate();
 
   const {
-    applicationCode,
     step1CustomerIdentify,
-    setApplicationCode,
     setCurrentStep,
     setStep1CustomerIdentify,
     setStep2PreliminaryInfo,
@@ -343,9 +335,12 @@ function CustomerIdentifyScreen() {
   );
   const [pendingOcrData, setPendingOcrData] =
     useState<Record<string, unknown> | null>(step1CustomerIdentify.ocrData);
+  const hasPendingOcrFill = Boolean(pendingOcrData);
 
   const form = useForm<CustomerIdentifyFormValues>({
     resolver: zodResolver(customerIdentifySchema),
+    mode: "onChange",
+    reValidateMode: "onChange",
     defaultValues: {
       fullName: step1CustomerIdentify.fullName || "",
       dateOfBirth: convertDateToApiFormat(step1CustomerIdentify.dateOfBirth),
@@ -426,6 +421,7 @@ function CustomerIdentifyScreen() {
         ocrSuccessMessage: "",
         ocrErrorMessage: message,
       });
+      toast.error(message);
 
       return;
     }
@@ -458,6 +454,7 @@ function CustomerIdentifyScreen() {
           ocrSuccessMessage: "",
           ocrErrorMessage: message,
         });
+        toast.error(message);
 
         return;
       }
@@ -479,6 +476,7 @@ function CustomerIdentifyScreen() {
         ocrSuccessMessage: successMessage,
         ocrErrorMessage: "",
       });
+      toast.success(successMessage);
     } catch (error) {
       console.error("OCR error:", error);
 
@@ -494,6 +492,7 @@ function CustomerIdentifyScreen() {
         ocrSuccessMessage: "",
         ocrErrorMessage: message,
       });
+      toast.error(message);
     } finally {
       setIsCheckingOcr(false);
     }
@@ -521,6 +520,7 @@ function CustomerIdentifyScreen() {
         ocrSuccessMessage: "",
         ocrErrorMessage: errorMessage,
       });
+      toast.error(errorMessage);
 
       event.target.value = "";
       return;
@@ -619,91 +619,30 @@ function CustomerIdentifyScreen() {
     }
 
     const values = form.getValues();
-
     const formattedDateOfBirth = convertDateToApiFormat(values.dateOfBirth);
-    let customerSnapshot = buildCustomerSnapshot(
-      values,
-      result,
-      {
-        ...step1CustomerIdentify,
-        ocrData: pendingOcrData || step1CustomerIdentify.ocrData,
-      },
-    );
-    const existingCustomerCode =
+    const customerSnapshot = buildCustomerSnapshot(values, result, {
+      ...step1CustomerIdentify,
+      ocrData: pendingOcrData || step1CustomerIdentify.ocrData,
+    });
+    const customerCode =
       (result ? getMatchedCustomerCode(result) : "") ||
       customerSnapshot.customerCode ||
       step1CustomerIdentify.customerCode;
     const matchedCustomer = result?.data?.matchedCustomer || null;
+    const selectedCustomer: Record<string, unknown> | null = matchedCustomer
+      ? {
+          ...customerSnapshot,
+          ...matchedCustomer,
+          customerCode,
+        }
+      : customerSnapshot;
 
     setIsSubmitting(true);
     setUploadError("");
     setOcrStatus(null);
 
     try {
-      let customerCode = existingCustomerCode;
-      let selectedCustomer: Record<string, unknown> | null = matchedCustomer
-        ? {
-            ...matchedCustomer,
-            customerCode,
-          }
-        : null;
-
-      if (!customerCode) {
-        const createCustomerResponse = await customerIdentifyApi.createCustomer({
-          fullName: values.fullName || "",
-          identifierNumber: values.identityNumber || "",
-          phoneNumber: values.phoneNumber || "",
-          dateOfBirth: formattedDateOfBirth,
-        });
-
-        if (!createCustomerResponse.success || !createCustomerResponse.data) {
-          throw new Error(
-            createCustomerResponse.message || "KhÃ´ng thá»ƒ táº¡o khÃ¡ch hÃ ng má»›i.",
-          );
-        }
-
-        customerCode = createCustomerResponse.data.customerCode;
-        customerSnapshot = {
-          ...customerSnapshot,
-          customerCode,
-          customerStatus: createCustomerResponse.data.status,
-        };
-        selectedCustomer = {
-          ...customerSnapshot,
-          ...createCustomerResponse.data,
-        };
-      }
-
-      let nextApplicationCode =
-        applicationCode ||
-        step1CustomerIdentify.applicationCode ||
-        step1CustomerIdentify.loanApplicationCode;
-
-      if (!nextApplicationCode) {
-        const draftResponse =
-          await preliminaryInfoApi.createLoanApplicationDraft({
-            customerCode,
-            ...DEFAULT_LOAN_APPLICATION_CONTEXT,
-          });
-
-        if (!draftResponse.success || !draftResponse.data?.applicationCode) {
-          throw new Error(
-            draftResponse.message || "KhÃ´ng thá»ƒ táº¡o há»“ sÆ¡ vay nhÃ¡p.",
-          );
-        }
-
-        nextApplicationCode = draftResponse.data.applicationCode;
-      }
-
-      setApplicationCode(nextApplicationCode);
-      setSelectedCustomer(
-        selectedCustomer
-          ? {
-              ...customerSnapshot,
-              ...selectedCustomer,
-            }
-          : customerSnapshot,
-      );
+      setSelectedCustomer(selectedCustomer);
 
       setStep1CustomerIdentify({
         ...customerSnapshot,
@@ -717,8 +656,8 @@ function CustomerIdentifyScreen() {
         customerStatus: customerSnapshot.customerStatus,
         customerCheckResult: result,
         ocrData: pendingOcrData || step1CustomerIdentify.ocrData,
-        applicationCode: nextApplicationCode,
-        loanApplicationCode: nextApplicationCode,
+        applicationCode: step1CustomerIdentify.applicationCode,
+        loanApplicationCode: step1CustomerIdentify.loanApplicationCode,
       });
 
       setStep2PreliminaryInfo({
@@ -727,8 +666,8 @@ function CustomerIdentifyScreen() {
         phoneNumber: customerSnapshot.phoneNumber,
         dateOfBirth: customerSnapshot.dateOfBirth || formattedDateOfBirth,
         gender: customerSnapshot.gender,
-        applicationCode: nextApplicationCode,
-        loanApplicationCode: nextApplicationCode,
+        applicationCode: step1CustomerIdentify.applicationCode,
+        loanApplicationCode: step1CustomerIdentify.loanApplicationCode,
       });
 
       setCurrentStep(2);
@@ -737,12 +676,12 @@ function CustomerIdentifyScreen() {
         to: "/loan/preliminary-info",
       });
     } catch (error) {
-      console.error("Create loan application draft error:", error);
+      console.error("Save step 1 state error:", error);
 
       const message =
         error instanceof Error
           ? error.message
-          : "KhÃ´ng thá»ƒ táº¡o há»“ sÆ¡ vay. Vui lÃ²ng thá»­ láº¡i.";
+          : "Khong the luu thong tin dinh danh. Vui long thu lai.";
 
       setUploadError(message);
       setOcrStatus({
@@ -753,7 +692,6 @@ function CustomerIdentifyScreen() {
       setIsSubmitting(false);
     }
   };
-
   const handleSubmit = async (values: CustomerIdentifyFormValues) => {
     setIsSubmitting(true);
     setUploadError("");
@@ -799,6 +737,7 @@ function CustomerIdentifyScreen() {
             }
           : null,
       );
+      toast.success("Tra cứu khách hàng thành công.");
     } catch (error) {
       console.error("Customer lookup error:", error);
 
@@ -818,6 +757,7 @@ function CustomerIdentifyScreen() {
         ocrSuccessMessage: "",
         ocrErrorMessage: message,
       });
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -865,7 +805,12 @@ function CustomerIdentifyScreen() {
                           <FormControl>
                             <Input
                               placeholder="Nhập họ và tên"
-                              className="h-11"
+                              className={[
+                                "h-11",
+                                hasPendingOcrFill
+                                  ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
+                                  : "",
+                              ].join(" ")}
                               {...field}
                             />
                           </FormControl>
@@ -902,11 +847,15 @@ function CustomerIdentifyScreen() {
                                   <Button
                                     type="button"
                                     variant="outline"
-                                    className={
+                                    className={[
+                                      "h-11 w-full justify-between rounded-lg border px-3 text-left transition-colors",
                                       selectedDate
-                                        ? "h-11 w-full justify-between rounded-lg border border-[#cbd5e1] bg-white px-3 text-left font-normal text-[#111827]"
-                                        : "h-11 w-full justify-between rounded-lg border border-[#cbd5e1] bg-white px-3 text-left font-normal text-[#94a3b8]"
-                                    }
+                                        ? "border-[#cbd5e1] bg-white font-normal text-[#111827]"
+                                        : "border-[#cbd5e1] bg-white font-normal text-[#94a3b8]",
+                                      hasPendingOcrFill && selectedDate
+                                        ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
+                                        : "",
+                                    ].join(" ")}
                                   >
                                     <span>
                                       {selectedDate
@@ -1026,7 +975,12 @@ function CustomerIdentifyScreen() {
                           <FormControl>
                             <Input
                               placeholder="Nhập số điện thoại"
-                              className="h-11"
+                              className={[
+                                "h-11",
+                                hasPendingOcrFill
+                                  ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
+                                  : "",
+                              ].join(" ")}
                               value={field.value || ""}
                               onChange={(event) => {
                                 const onlyNumber = event.target.value.replace(
@@ -1057,7 +1011,12 @@ function CustomerIdentifyScreen() {
                           <FormControl>
                             <Input
                               placeholder="Nhập số giấy tờ"
-                              className="h-11"
+                              className={[
+                                "h-11",
+                                hasPendingOcrFill
+                                  ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
+                                  : "",
+                              ].join(" ")}
                               value={field.value || ""}
                               onChange={(event) => {
                                 const onlyNumber = event.target.value.replace(

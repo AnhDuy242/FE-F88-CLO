@@ -23,9 +23,10 @@ import type { PreliminaryInfoFormValues } from "../schemas/preliminary-info.sche
 
 type DateOfBirthFieldProps = {
   form: UseFormReturn<PreliminaryInfoFormValues>;
+  autoFilled?: boolean;
 };
 
-export function DateOfBirthField({ form }: DateOfBirthFieldProps) {
+export function DateOfBirthField({ form, autoFilled }: DateOfBirthFieldProps) {
   return (
     <FormField
       control={form.control}
@@ -48,11 +49,15 @@ export function DateOfBirthField({ form }: DateOfBirthFieldProps) {
                   <Button
                     type="button"
                     variant="outline"
-                    className={
+                    className={[
+                      "h-12 w-full justify-between rounded-xl border px-4 text-left transition-colors",
                       selectedDate
-                        ? "h-12 w-full justify-between rounded-xl border border-[#dbe5dd] bg-white px-4 text-left font-normal text-[#111827]"
-                        : "h-12 w-full justify-between rounded-xl border border-[#dbe5dd] bg-white px-4 text-left font-normal text-[#94a3b8]"
-                    }
+                        ? "border-[#dbe5dd] bg-white font-normal text-[#111827]"
+                        : "border-[#dbe5dd] bg-white font-normal text-[#94a3b8]",
+                      autoFilled && selectedDate
+                        ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
+                        : "",
+                    ].join(" ")}
                   >
                     <span>
                       {selectedDate

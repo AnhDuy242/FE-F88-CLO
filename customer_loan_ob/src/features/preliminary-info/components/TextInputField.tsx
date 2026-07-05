@@ -2,6 +2,7 @@ import type { InputHTMLAttributes } from "react";
 import type { FieldPath, UseFormReturn } from "react-hook-form";
 
 import { Input } from "@/components/ui/input";
+import { formatCurrencyInput } from "@/lib/currency";
 
 import {
   FormControl,
@@ -25,17 +26,8 @@ type TextInputFieldProps = {
   maxLength?: number;
   inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
   formatCurrencyVnd?: boolean;
+  autoFilled?: boolean;
 };
-
-function formatCurrencyVnd(value: string) {
-  const digitsOnly = value.replace(/\D/g, "");
-
-  if (!digitsOnly) return "";
-
-  const normalizedValue = digitsOnly.replace(/^0+(?=\d)/, "");
-
-  return normalizedValue.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-}
 
 export function TextInputField({
   form,
@@ -49,6 +41,7 @@ export function TextInputField({
   maxLength,
   inputMode,
   formatCurrencyVnd: shouldFormatCurrencyVnd,
+  autoFilled,
 }: TextInputFieldProps) {
   return (
     <FormField
@@ -77,7 +70,7 @@ export function TextInputField({
                   let nextValue = event.target.value;
 
                   if (shouldFormatCurrencyVnd) {
-                    field.onChange(formatCurrencyVnd(nextValue));
+                    field.onChange(formatCurrencyInput(nextValue));
                     return;
                   }
 
@@ -93,6 +86,9 @@ export function TextInputField({
                 }}
                 className={[
                   "h-12 rounded-xl border border-[#dbe5dd] bg-white px-4 text-base text-[#111827] shadow-sm placeholder:text-[#94a3b8] focus-visible:ring-1 focus-visible:ring-[#009b3a]",
+                  autoFilled
+                    ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
+                    : "",
                   className,
                 ]
                   .filter(Boolean)

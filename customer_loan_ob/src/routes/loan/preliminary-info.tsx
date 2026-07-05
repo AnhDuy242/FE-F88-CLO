@@ -6,6 +6,13 @@ import { useForm, useWatch } from "react-hook-form";
 import { Calculator, Car, DocumentText, TickCircle } from "iconsax-react";
 
 import { Form } from "@/components/ui/form";
+import { toast } from "@/components/ui/toast";
+import {
+  formatCurrencyInput,
+  formatCurrencyVnd,
+  getCurrencyDigits,
+  parseCurrencyToNumber,
+} from "@/lib/currency";
 
 import { CustomerIdentifyBreadcrumb } from "@/features/customer-identify/components/CustomerIdentifyBreadcrumb";
 import { LoanOnboardingStepper } from "@/features/customer-identify/components/LoanOnboardingStepper";
@@ -35,8 +42,6 @@ import {
 
 import type {
   DeductionItem,
-  LoanPackage,
-  LoanPackageId,
   SaveLoanApplicationDraftPayload,
 } from "@/features/preliminary-info/types/preliminary-info.type";
 
@@ -63,62 +68,12 @@ export const Route = createFileRoute("/loan/preliminary-info")({
 
 const CURRENT_STEP = 2;
 
-const loanPackages: LoanPackage[] = [
-  {
-    id: "standard",
-    name: "Gói Tiêu chuẩn",
-    interestRate: 2.5,
-    ltv: 70,
-    maxLoanAmount: 35_000_000,
-    terms: [12, 36, 48, 72],
-  },
-  {
-    id: "promotion",
-    name: "Gói Ưu đãi",
-    tag: "Khuyến nghị",
-    interestRate: 2,
-    ltv: 75,
-    maxLoanAmount: 37_500_000,
-    terms: [12, 36, 48, 72],
-  },
-  {
-    id: "vip",
-    name: "Gói VIP",
-    tag: "KH Cũ",
-    interestRate: 1.8,
-    ltv: 80,
-    maxLoanAmount: 40_000_000,
-    terms: [12, 36, 48, 72],
-    disabled: true,
-  },
-];
-
-const DEFAULT_LOAN_PACKAGE_ID: LoanPackageId = "promotion";
-
-function normalizeLoanPackageId(value?: string): LoanPackageId {
-  if (value === "standard" || value === "promotion" || value === "vip") {
-    return value;
-  }
-
-  return DEFAULT_LOAN_PACKAGE_ID;
-}
-
 function getDigitsOnly(value?: string) {
-  return (value || "").replace(/\D/g, "");
+  return getCurrencyDigits(value);
 }
 
 function formatCurrencyVndForDefaultValue(value?: string) {
-  const digitsOnly = getDigitsOnly(value);
-
-  if (!digitsOnly) return "";
-
-  return `${digitsOnly.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} Đ`;
-}
-
-function formatCurrencyVnd(value?: number) {
-  const safeValue = Number(value || 0);
-
-  return `${Math.max(safeValue, 0).toLocaleString("vi-VN")} đ`;
+  return formatCurrencyInput(value);
 }
 
 function getStringFromUnknownObject(source: unknown, keys: string[]) {
@@ -166,13 +121,10 @@ function getNumberFromUnknownObject(source: unknown, keys: string[]) {
 }
 
 function getScoreGradeFromStorage(step1: unknown, step2: unknown) {
-  const fromStepData =
+  return (
     getStringFromUnknownObject(step2, ["scoreGrade", "creditScoreGrade"]) ||
-    getStringFromUnknownObject(step1, ["scoreGrade", "creditScoreGrade"]);
-
-  if (fromStepData) return fromStepData;
-
-  return sessionStorage.getItem("scoreGrade") || "A";
+    getStringFromUnknownObject(step1, ["scoreGrade", "creditScoreGrade"])
+  );
 }
 
 function mapOcrSexToGender(sex?: string) {
@@ -493,12 +445,15 @@ function PreliminaryInfoScreen() {
     step2Session?.selectedDeductionIds || [],
   );
 
- const [selectedPackageId] = useState<LoanPackageId>(() =>
-  normalizeLoanPackageId(step2Session?.selectedPackageId),
-);
-
   const [selectedTerm, setSelectedTerm] = useState(
-    step2Session?.selectedTerm || step2Session?.term || "12",
+    step2Session?.selectedTerm || step2Session?.term || "",
+  );
+  const hasAutoFilledCustomerInfo = Boolean(
+    step1Identity?.fullName ||
+      step1Identity?.identityNumber ||
+      step1Identity?.phoneNumber ||
+      step1Identity?.dateOfBirth ||
+      selectedCustomerData,
   );
 
   const [loanRecommendationResult, setLoanRecommendationResult] =
@@ -578,6 +533,8 @@ function PreliminaryInfoScreen() {
 
   const form = useForm<PreliminaryInfoFormValues>({
     resolver: zodResolver(preliminaryInfoSchema),
+    mode: "onChange",
+    reValidateMode: "onChange",
     defaultValues: {
       fullName:
         getStringFromUnknownObject(selectedCustomerData, [
@@ -619,7 +576,7 @@ function PreliminaryInfoScreen() {
       desiredLoanAmount: formatCurrencyVndForDefaultValue(
         step2Session?.desiredLoanAmount,
       ),
-      term: step2Session?.term || "12",
+      term: step2Session?.term || step2Session?.selectedTerm || "",
 
       assetType: normalizeAssetType(step2Session?.assetType),
       brand: step2Session?.brand || "",
@@ -818,6 +775,18 @@ function PreliminaryInfoScreen() {
         if (!isMounted) return;
 
         setLoanTermOptions(options);
+
+        const currentTerm = form.getValues("term") || selectedTerm;
+        const hasCurrentTerm = options.some((option) => option.value === currentTerm);
+        const fallbackTerm = options[0]?.value || "";
+
+        if (!hasCurrentTerm && fallbackTerm) {
+          setSelectedTerm(fallbackTerm);
+          form.setValue("term", fallbackTerm, {
+            shouldDirty: false,
+            shouldValidate: true,
+          });
+        }
       } catch (error) {
         console.error("Load loan terms error:", error);
 
@@ -1099,13 +1068,6 @@ function PreliminaryInfoScreen() {
     return valuationResult.data || valuationResult;
   }, [valuationResult]);
 
-  const selectedPackage = useMemo(() => {
-    return (
-      loanPackages.find((item) => item.id === selectedPackageId) ||
-      loanPackages[1]
-    );
-  }, [selectedPackageId]);
-
   const selectedRecommendedProduct = useMemo(() => {
     return (
       recommendedProducts.find(
@@ -1210,12 +1172,8 @@ function PreliminaryInfoScreen() {
   ]);
 
   const appraisalLtvPercent = useMemo(() => {
-    return (
-      Number(
-        selectedRecommendedProduct?.maxLtvPercent ?? selectedPackage.ltv ?? 75,
-      ) || 75
-    );
-  }, [selectedPackage.ltv, selectedRecommendedProduct]);
+    return Number(selectedRecommendedProduct?.maxLtvPercent || 0);
+  }, [selectedRecommendedProduct]);
 
   const maxLoanByAppraisal = useMemo(() => {
     const adjustedAssetValue = Number(valueAfterDeduction);
@@ -1277,11 +1235,11 @@ function PreliminaryInfoScreen() {
         identifierNumber: values.identityNumber || "",
         phoneNumber: values.phoneNumber || "",
         occupation: values.job || "",
-        monthlyIncome: Number(getDigitsOnly(values.monthlyIncome)),
+        monthlyIncome: parseCurrencyToNumber(values.monthlyIncome),
       },
       loanRequest: {
         loanPurpose: values.loanPurpose || "",
-        requestedAmount: Number(getDigitsOnly(values.desiredLoanAmount)),
+        requestedAmount: parseCurrencyToNumber(values.desiredLoanAmount),
         requestedTenure: Number(values.term || selectedTerm || 0),
       },
     };
@@ -1293,7 +1251,6 @@ function PreliminaryInfoScreen() {
       monthlyIncome: getDigitsOnly(values.monthlyIncome),
       desiredLoanAmount: getDigitsOnly(values.desiredLoanAmount),
       selectedDeductionIds,
-      selectedPackageId,
       selectedTerm,
       selectedProductCode:
         selectedRecommendedProduct?.productCode || selectedProductCode,
@@ -1528,9 +1485,7 @@ function PreliminaryInfoScreen() {
       clearTimeout(loanRecommendationTimerRef.current);
     }
 
-    const requestedLoanAmount = Number(
-      getDigitsOnly(String(watchedDesiredLoanAmount || "")),
-    );
+    const requestedLoanAmount = parseCurrencyToNumber(watchedDesiredLoanAmount);
 
     if (
       !watchedLoanPurpose ||
@@ -1677,49 +1632,23 @@ function PreliminaryInfoScreen() {
     setIsSubmitting(true);
 
     try {
-      const applicationCode = getCurrentApplicationCode();
-
       saveCurrentStep2ToSession(values);
-
-      if (!applicationCode) {
-        throw new Error(
-          "Thieu applicationCode. Vui long hoan tat man dinh danh truoc.",
-        );
-      }
-
-      const draftResponse = await preliminaryInfoApi.saveDraft(
-        applicationCode,
-        buildSaveDraftPayload(values),
-      );
-
-      if (!draftResponse.success || !draftResponse.data?.applicationCode) {
-        throw new Error(draftResponse.message || "Luu nhap that bai.");
-      }
-
-      setApplicationCode(draftResponse.data.applicationCode);
-
-      const submitResponse = await preliminaryInfoApi.submit(
-        draftResponse.data.applicationCode,
-      );
-
-      if (!submitResponse.success || !submitResponse.data?.completed) {
-        throw new Error(
-          submitResponse.message ||
-            submitResponse.data?.validationErrors?.join(", ") ||
-            "Hoan thanh buoc thong tin so bo that bai.",
-        );
-      }
-
       setCurrentStep(3);
+      toast.success("Đã lưu thông tin bước 2 vào phiên làm việc.");
 
       navigate({
         to: "/loan/customer-asset-detail",
       });
     } catch (error) {
       console.error("Submit step 2 lỗi:", error);
+      toast.error("Không thể lưu thông tin sơ bộ. Vui lòng thử lại.");
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleInvalidSubmit = () => {
+    toast.error("Vui lòng kiểm tra trường bắt buộc hoặc dữ liệu sai định dạng.");
   };
 
   const handleCancel = () => {
@@ -1820,7 +1749,7 @@ function PreliminaryInfoScreen() {
 
           <Form {...form}>
             <form
-              onSubmit={form.handleSubmit(handleSubmit)}
+              onSubmit={form.handleSubmit(handleSubmit, handleInvalidSubmit)}
               className="space-y-5"
             >
               <SectionCard
@@ -1843,6 +1772,7 @@ function PreliminaryInfoScreen() {
                     required
                     placeholder="Nhập họ và tên"
                     className="bg-[#f8fbf8]"
+                    autoFilled={hasAutoFilledCustomerInfo}
                   />
 
                   <TextInputField
@@ -1851,6 +1781,7 @@ function PreliminaryInfoScreen() {
                     label="Số CCCD"
                     placeholder="Nhập số CCCD"
                     className="bg-[#f8fbf8]"
+                    autoFilled={hasAutoFilledCustomerInfo}
                     onlyNumber
                     inputMode="numeric"
                     maxLength={12}
@@ -1864,12 +1795,16 @@ function PreliminaryInfoScreen() {
                     label="Số điện thoại"
                     placeholder="Nhập số điện thoại"
                     className="bg-[#f8fbf8]"
+                    autoFilled={hasAutoFilledCustomerInfo}
                     onlyNumber
                     inputMode="numeric"
                     maxLength={11}
                   />
 
-                  <DateOfBirthField form={form} />
+                  <DateOfBirthField
+                    form={form}
+                    autoFilled={hasAutoFilledCustomerInfo}
+                  />
 
                   <SelectField
                     form={form}
@@ -2103,8 +2038,8 @@ function PreliminaryInfoScreen() {
                   selectedProductCode={selectedProductCode}
                   selectedTerm={selectedTerm}
                   termOptions={loanTermOptions}
-                  requestedLoanAmount={Number(
-                    getDigitsOnly(form.watch("desiredLoanAmount") || ""),
+                  requestedLoanAmount={parseCurrencyToNumber(
+                    form.watch("desiredLoanAmount"),
                   )}
                   isLoading={isLoanRecommendationLoading}
                   error={loanRecommendationError}

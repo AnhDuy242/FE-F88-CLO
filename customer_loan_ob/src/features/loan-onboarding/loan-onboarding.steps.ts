@@ -13,6 +13,6 @@ export const loanOnboardingSteps = [
   },
   {
     step: 4,
-    title: "Upload hồ sơ & Hoàn tất",
+    title: "Upload chứng từ & Hoàn tất",
   },
 ] as const;

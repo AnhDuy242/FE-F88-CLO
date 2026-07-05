@@ -9,6 +9,14 @@ export type LoanOnboardingImageMeta = {
   type: string;
 };
 
+export type UploadedDocumentMeta = LoanOnboardingImageMeta & {
+  id: string;
+  groupId: string;
+  documentType: string;
+  required: boolean;
+  uploadedAt: string;
+};
+
 export type Step1IdentityStorage = {
   fullName?: string;
   dateOfBirth?: string;
@@ -166,9 +174,6 @@ export type AssetDataState = {
   vehicleOwnerName: string;
   registrationNumber: string;
   registrationIssueDate: string;
-  documentStatus: string;
-  legalStatus: string;
-  assetNote: string;
 };
 
 export type CustomerAssetDetailState = {
@@ -206,6 +211,7 @@ type LoanOnboardingStoreState = {
   step3Data: CustomerAssetDetailState | null;
   assetData: AssetDataState | null;
   references: ReferencePersonState[];
+  uploadedDocuments: UploadedDocumentMeta[];
   selectedLoanProduct: Record<string, unknown> | null;
   loanRecommendation: Record<string, unknown> | null;
 
@@ -238,6 +244,7 @@ type LoanOnboardingStoreState = {
   setStep3Data: (step3Data: CustomerAssetDetailState | null) => void;
   setAssetData: (assetData: AssetDataState | null) => void;
   setReferences: (references: ReferencePersonState[]) => void;
+  setUploadedDocuments: (uploadedDocuments: UploadedDocumentMeta[]) => void;
   setLoanRecommendation: (
     loanRecommendation: Record<string, unknown> | null,
   ) => void;
@@ -340,9 +347,6 @@ export const initialAssetData: AssetDataState = {
   vehicleOwnerName: "",
   registrationNumber: "",
   registrationIssueDate: "",
-  documentStatus: "",
-  legalStatus: "",
-  assetNote: "",
 };
 
 export const initialCustomerAssetDetailData: CustomerAssetDetailState = {
@@ -473,6 +477,7 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
       step3Data: null,
       assetData: null,
       references: initialReferencePersons,
+      uploadedDocuments: [],
       selectedLoanProduct: null,
       loanRecommendation: null,
 
@@ -630,6 +635,10 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
         }));
       },
 
+      setUploadedDocuments: (uploadedDocuments) => {
+        set({ uploadedDocuments });
+      },
+
       setLoanRecommendation: (loanRecommendation) => {
         set({ loanRecommendation });
       },
@@ -716,6 +725,7 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
           step3Data: null,
           assetData: null,
           references: initialReferencePersons,
+          uploadedDocuments: [],
           selectedLoanProduct: null,
           loanRecommendation: null,
           step1CustomerIdentify: initialStep1CustomerIdentify,
@@ -750,6 +760,7 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
         step3Data: state.step3Data,
         assetData: state.assetData,
         references: state.references,
+        uploadedDocuments: state.uploadedDocuments,
         selectedLoanProduct: state.selectedLoanProduct,
         loanRecommendation: state.loanRecommendation,
         step1CustomerIdentify: state.step1CustomerIdentify,

@@ -44,6 +44,10 @@ export const API_ENDPOINTS = {
     recommend: "/loan-products/recommendations",
     recommendByApplication: (applicationCode: string) =>
       `/loan-applications/${applicationCode}/loan-product-recommendations`,
+    previewFinalOffer: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/final-loan-offer/preview`,
+    selectFinalOffer: (applicationCode: string) =>
+      `/loan-applications/${applicationCode}/final-loan-offer/select`,
   },
 
   referenceData: {

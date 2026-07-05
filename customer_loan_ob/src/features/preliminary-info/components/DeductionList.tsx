@@ -1,4 +1,5 @@
 import { Checkbox } from "@/components/ui/checkbox";
+import { formatCurrencyVnd } from "@/lib/currency";
 
 import type { DeductionItem } from "../types/preliminary-info.type";
 
@@ -9,10 +10,6 @@ type DeductionListProps = {
   deductionAmountsById?: Record<string, number>;
   onToggle: (id: string, checked: boolean) => void;
 };
-
-function formatCurrencyVnd(value: number) {
-  return `${Math.round(value).toLocaleString("vi-VN")} đ`;
-}
 
 export function DeductionList({
   deductions,

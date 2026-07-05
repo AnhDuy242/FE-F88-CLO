@@ -8,6 +8,7 @@ import type {
   SaveReferencePersonsPayload,
   SaveVehicleRegistrationPayload,
   Step3ApiResponse,
+  SubmitForApprovalResponse,
 } from "@/features/customer-asset-detail/types/customer-asset-detail.type";
 
 export const customerAssetDetailApi = {
@@ -58,6 +59,14 @@ export const customerAssetDetailApi = {
     return axiosClient.patch<Step3ApiResponse, Step3ApiResponse>(
       API_ENDPOINTS.loanApplication.saveVehicleRegistration(applicationCode),
       payload,
+    );
+  },
+
+  submitForApproval: async (
+    applicationCode: string,
+  ): Promise<SubmitForApprovalResponse> => {
+    return axiosClient.post<SubmitForApprovalResponse, SubmitForApprovalResponse>(
+      API_ENDPOINTS.loanApplication.submitForApproval(applicationCode),
     );
   },
 };

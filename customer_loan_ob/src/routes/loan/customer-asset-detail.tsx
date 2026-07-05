@@ -2,11 +2,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
-import { Car, DocumentText, User } from "iconsax-react";
+import { Car, User } from "iconsax-react";
 
 import { Button } from "@/components/ui/button";
 import { Form } from "@/components/ui/form";
-import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/toast";
+import { getCurrencyDigits, parseCurrencyToNumber } from "@/lib/currency";
 
 import { CustomerIdentifyBreadcrumb } from "@/features/customer-identify/components/CustomerIdentifyBreadcrumb";
 import { LoanOnboardingStepper } from "@/features/customer-identify/components/LoanOnboardingStepper";
@@ -16,7 +17,6 @@ import {
   CustomerAssetTextField,
 } from "@/features/customer-asset-detail/components/CustomerAssetFields";
 import { LoanRecommendationPanel } from "@/features/customer-asset-detail/components/LoanRecommendationPanel";
-import { customerAssetDetailApi } from "@/features/customer-asset-detail/api/customer-asset-detail.api";
 import {
   customerAssetDetailSchema,
   type CustomerAssetDetailFormValues,
@@ -87,7 +87,31 @@ function getNumberFromUnknownObject(source: unknown, keys: string[]) {
 }
 
 function getDigitsOnly(value?: string) {
-  return (value || "").replace(/\D/g, "");
+  return getCurrencyDigits(value);
+}
+
+function normalizeRegistrationDateForDisplay(value?: string) {
+  const trimmedValue = (value || "").trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedValue)) {
+    const [year, month, day] = trimmedValue.split("-");
+
+    return `${day}-${month}-${year}`;
+  }
+
+  return trimmedValue;
+}
+
+function normalizeRegistrationDateForApi(value?: string) {
+  const trimmedValue = (value || "").trim();
+
+  if (/^\d{2}-\d{2}-\d{4}$/.test(trimmedValue)) {
+    const [day, month, year] = trimmedValue.split("-");
+
+    return `${year}-${month}-${day}`;
+  }
+
+  return trimmedValue;
 }
 
 function normalizeGender(value?: string) {
@@ -217,12 +241,35 @@ function getStoredReferencePersons(
   }));
 }
 
+function getCompleteReferencePersons(
+  references: CustomerAssetDetailFormValues["references"],
+): ReferencePersonState[] {
+  return references
+    .map((item) => ({
+      fullName: item.fullName?.trim() || "",
+      relationshipType: item.relationshipType?.trim() || "",
+      phoneNumber: item.phoneNumber?.trim() || "",
+      address: item.address?.trim() || "",
+      note: item.note?.trim() || "",
+    }))
+    .filter((item) => item.fullName && item.relationshipType && item.phoneNumber);
+}
+
+function getApiErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+
+    if (typeof message === "string") return message;
+  }
+
+  return "Không thể lưu chi tiết khách hàng và tài sản.";
+}
+
 function CustomerAssetDetailScreen() {
   const navigate = useNavigate();
 
-  const applicationCode = useLoanOnboardingStore(
-    (state) => state.applicationCode,
-  );
   const selectedCustomer = useLoanOnboardingStore(
     (state) => state.selectedCustomer,
   );
@@ -238,6 +285,9 @@ function CustomerAssetDetailScreen() {
   );
   const selectedLoanProduct = useLoanOnboardingStore(
     (state) => state.selectedLoanProduct,
+  );
+  const applicationCode = useLoanOnboardingStore(
+    (state) => state.applicationCode,
   );
   const setCurrentStep = useLoanOnboardingStore((state) => state.setCurrentStep);
   const setCustomerAssetDetailData = useLoanOnboardingStore(
@@ -255,12 +305,20 @@ function CustomerAssetDetailScreen() {
   const selectedCustomerData = selectedCustomer as Record<string, unknown> | null;
   const selectedLoanProductData =
     selectedLoanProduct as Record<string, unknown> | null;
+  const hasAutoFilledCustomerInfo = Boolean(
+    step3Data?.fullName ||
+      step2PreliminaryInfo.fullName ||
+      step1Identity.fullName ||
+      selectedCustomerData,
+  );
 
   const defaultReferences = getStoredReferencePersons(step3Data?.references);
   const defaultAsset = step3Data?.assetData || initialAssetData;
 
   const form = useForm<CustomerAssetDetailFormValues>({
     resolver: zodResolver(customerAssetDetailSchema),
+    mode: "onChange",
+    reValidateMode: "onChange",
     defaultValues: {
       fullName:
         step3Data?.fullName ||
@@ -353,10 +411,9 @@ function CustomerAssetDetailScreen() {
       engineNumber: defaultAsset.engineNumber || "",
       vehicleOwnerName: defaultAsset.vehicleOwnerName || "",
       registrationNumber: defaultAsset.registrationNumber || "",
-      registrationIssueDate: defaultAsset.registrationIssueDate || "",
-      documentStatus: defaultAsset.documentStatus || "",
-      legalStatus: defaultAsset.legalStatus || "",
-      assetNote: defaultAsset.assetNote || "",
+      registrationIssueDate: normalizeRegistrationDateForDisplay(
+        defaultAsset.registrationIssueDate,
+      ),
       selectedLoanProductCode:
         step3Data?.selectedLoanProductCode ||
         getStringFromUnknownObject(selectedLoanProductData, ["productCode"]) ||
@@ -415,6 +472,8 @@ function CustomerAssetDetailScreen() {
   const [selectedProductCode, setSelectedProductCode] = useState(
     form.getValues("selectedLoanProductCode") || recommendedProductCode,
   );
+  const [finalOfferPreview, setFinalOfferPreview] =
+    useState<Record<string, unknown> | null>(null);
   const recommendationSignatureRef = useRef("");
 
   const [genderOptions, setGenderOptions] = useState<ReferenceOption[]>([]);
@@ -454,6 +513,64 @@ function CustomerAssetDetailScreen() {
   useEffect(() => {
     setCurrentStep(CURRENT_STEP);
   }, [setCurrentStep]);
+
+  useEffect(() => {
+    if (!selectedProductCode) return;
+
+    form.setValue("selectedLoanProductCode", selectedProductCode, {
+      shouldDirty: false,
+    });
+  }, [form, selectedProductCode]);
+
+  useEffect(() => {
+    const requestedAmount = parseCurrencyToNumber(
+      step2PreliminaryInfo.desiredLoanAmount,
+    );
+    const loanTermMonths = Number(
+      step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0,
+    );
+
+    if (!applicationCode || requestedAmount <= 0 || loanTermMonths <= 0) {
+      setFinalOfferPreview(null);
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadFinalOfferPreview = async () => {
+      try {
+        const response = await loanProductRecommendationApi.previewFinalOffer(
+          applicationCode,
+          {
+            requestedAmount,
+            loanTermMonths,
+            limit: 3,
+          },
+        );
+
+        if (!isMounted) return;
+
+        setFinalOfferPreview((response.data || response) as Record<string, unknown>);
+      } catch (error) {
+        console.error("Final offer preview error:", error);
+
+        if (!isMounted) return;
+
+        setFinalOfferPreview(null);
+      }
+    };
+
+    void loadFinalOfferPreview();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    applicationCode,
+    step2PreliminaryInfo.desiredLoanAmount,
+    step2PreliminaryInfo.selectedTerm,
+    step2PreliminaryInfo.term,
+  ]);
 
   useEffect(() => {
     const loadReferenceData = async () => {
@@ -652,9 +769,9 @@ function CustomerAssetDetailScreen() {
   useEffect(() => {
     const runRecommendation = async () => {
       const loanPurpose = step2PreliminaryInfo.loanPurpose;
-      const requestedLoanAmount = Number(
-        getDigitsOnly(step2PreliminaryInfo.desiredLoanAmount),
-      );
+    const requestedLoanAmount = parseCurrencyToNumber(
+      step2PreliminaryInfo.desiredLoanAmount,
+    );
       const requestedTenor = Number(
         step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0,
       );
@@ -787,6 +904,7 @@ function CustomerAssetDetailScreen() {
     watchedBrand,
     watchedManufactureYear,
     watchedModel,
+    watchedVersion,
     watchedVehicleColor,
     watchedVehicleVariant,
   ]);
@@ -794,6 +912,8 @@ function CustomerAssetDetailScreen() {
   const buildStep3Data = (
     values: CustomerAssetDetailFormValues,
   ): CustomerAssetDetailState => {
+    const completeReferences = getCompleteReferencePersons(values.references);
+
     return {
       ...initialCustomerAssetDetailData,
       fullName: values.fullName,
@@ -813,13 +933,7 @@ function CustomerAssetDetailScreen() {
       disbursementAccountName: values.disbursementAccountName,
       permanentAddress: values.permanentAddress,
       currentAddress: values.currentAddress,
-      references: values.references.map((item) => ({
-        fullName: item.fullName,
-        relationshipType: item.relationshipType,
-        phoneNumber: item.phoneNumber,
-        address: item.address || "",
-        note: item.note || "",
-      })),
+      references: completeReferences,
       assetData: {
         assetType: values.assetType,
         licensePlate: values.licensePlate,
@@ -835,10 +949,9 @@ function CustomerAssetDetailScreen() {
         engineNumber: values.engineNumber,
         vehicleOwnerName: values.vehicleOwnerName,
         registrationNumber: values.registrationNumber || "",
-        registrationIssueDate: values.registrationIssueDate || "",
-        documentStatus: values.documentStatus || "",
-        legalStatus: values.legalStatus || "",
-        assetNote: values.assetNote || "",
+        registrationIssueDate: normalizeRegistrationDateForApi(
+          values.registrationIssueDate,
+        ),
       },
       selectedLoanProductCode: selectedProductCode || "",
     };
@@ -848,91 +961,46 @@ function CustomerAssetDetailScreen() {
     setIsSubmitting(true);
     setSubmitError("");
 
-    const nextStep3Data = buildStep3Data(values);
-    setCustomerAssetDetailData(nextStep3Data);
-    setAssetData(nextStep3Data.assetData);
-    setReferences(nextStep3Data.references);
-    setCurrentStep(4);
-
-    const selectedProduct = recommendedProducts.find(
-      (product) => product.productCode === selectedProductCode,
-    );
-
-    setSelectedLoanProduct(selectedProduct || selectedLoanProductData || null);
-
     try {
-      if (!applicationCode) {
-        throw new Error("Thiếu applicationCode. Vui lòng hoàn tất bước 1 và 2.");
-      }
-
       if (!values.vehicleVariant) {
-        throw new Error("Chưa resolve được biến thể xe từ thông tin đã chọn.");
+        throw new Error("Chua resolve duoc bien the xe tu thong tin da chon.");
       }
 
-      await customerAssetDetailApi.saveCustomerDetail(applicationCode, {
-        gender: normalizeGender(values.gender),
-        email: values.email || "",
-        maritalStatus: values.maritalStatus,
-        occupationCode: values.occupationCode,
-        incomeSourceCode: values.incomeSourceCode,
-        monthlyIncomeAmount: Number(getDigitsOnly(values.monthlyIncomeAmount)),
-        disbursementBankCode: values.disbursementBankCode,
-        disbursementAccountNumber: values.disbursementAccountNumber,
-        disbursementAccountName: values.disbursementAccountName,
-        workplaceName: values.workplaceName || "",
-        permanentAddress: values.permanentAddress,
-        currentAddress: values.currentAddress,
-      });
+      const completeReferences = getCompleteReferencePersons(values.references);
 
-      await customerAssetDetailApi.saveReferencePersons(applicationCode, {
-        referencePersons: values.references.map((item) => ({
-          fullName: item.fullName,
-          phoneNumber: item.phoneNumber,
-          relationshipType: item.relationshipType,
-          address: item.address || "",
-        })),
-      });
+      if (completeReferences.length < 3) {
+        throw new Error("Can toi thieu 3 nguoi tham chieu hop le.");
+      }
 
-      await customerAssetDetailApi.saveAssetSnapshot(applicationCode, {
-        assetType: normalizeAssetType(values.assetType),
-        licensePlate: values.licensePlate,
-        brand: values.brand,
-        model: values.model,
-        vehicleVariant: values.vehicleVariant,
-        manufactureYear: Number(values.manufactureYear),
-        vehicleColor: values.vehicleColor,
-      });
+      const nextStep3Data = buildStep3Data(values);
+      setCustomerAssetDetailData(nextStep3Data);
+      setAssetData(nextStep3Data.assetData);
+      setReferences(nextStep3Data.references);
 
-      await customerAssetDetailApi.saveAssetLegalInfo(applicationCode, {
-        frameNumber: values.frameNumber,
-        engineNumber: values.engineNumber,
-      });
-
-      await assetValuationApi.save(applicationCode, {
-        assetSnapshot: {
-          assetType: normalizeAssetType(values.assetType),
-          brand: values.brand,
-          model: values.model,
-          vehicleVariant: values.vehicleVariant,
-          manufactureYear: Number(values.manufactureYear),
-          vehicleColor: values.vehicleColor,
-        },
-        deductionItems: selectedDeductionItems.map((item) => ({
-          type: item.type,
-          rate: item.rate,
-        })),
-      });
-
-    } catch (error) {
-      console.error("Submit step 3 error:", error);
-      setSubmitError(
-        error instanceof Error
-          ? error.message
-          : "Không thể lưu chi tiết khách hàng và tài sản.",
+      const selectedProduct = recommendedProducts.find(
+        (product) => product.productCode === selectedProductCode,
       );
+
+      setSelectedLoanProduct(selectedProduct || selectedLoanProductData || null);
+      setCurrentStep(4);
+      toast.success("Đã lưu thông tin bước 3 vào phiên làm việc.");
+
+      navigate({
+        to: "/loan/upload-documents",
+      });
+    } catch (error) {
+      console.error("Save step 3 state error:", error);
+      const message = getApiErrorMessage(error);
+
+      setSubmitError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleInvalidSubmit = () => {
+    toast.error("Vui lòng kiểm tra trường bắt buộc hoặc dữ liệu sai định dạng.");
   };
 
   const handleBack = () => {
@@ -943,6 +1011,11 @@ function CustomerAssetDetailScreen() {
   };
 
   const handleAddReference = () => {
+    if (fields.length >= 4) {
+      toast.error("Số người tham chiếu tối đa là 4.");
+      return;
+    }
+
     append({
       fullName: "",
       relationshipType: "",
@@ -952,14 +1025,59 @@ function CustomerAssetDetailScreen() {
     });
   };
 
-  const validReferenceCount = form
-    .watch("references")
-    .filter((item) => item.fullName && item.relationshipType && item.phoneNumber)
-    .length;
+  const validReferenceCount = getCompleteReferencePersons(
+    form.watch("references"),
+  ).length;
 
   const selectedDeductionLabels = selectedDeductionItems.map((item) => item.label);
   const waitingRecommendationMessage =
     "Chưa đủ dữ liệu để lấy đề xuất gói vay từ backend.";
+  const requestedLoanAmount = parseCurrencyToNumber(
+    step2PreliminaryInfo.desiredLoanAmount,
+  );
+  const loanTermMonths = Number(
+    step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0,
+  );
+  const paymentMethod =
+    getStringFromUnknownObject(finalOfferPreview, ["paymentMethod"]) ||
+    getStringFromUnknownObject(selectedLoanProductData, ["paymentMethod"]) ||
+    getStringFromUnknownObject(storedLoanRecommendation, ["paymentMethod"]);
+  const monthlyPaymentDay = getNumberFromUnknownObject(finalOfferPreview, [
+    "monthlyPaymentDay",
+  ]);
+  const firstPaymentDate =
+    getStringFromUnknownObject(finalOfferPreview, [
+      "firstPaymentDate",
+      "firstDueDate",
+      "firstPaymentDueDate",
+    ]) ||
+    (monthlyPaymentDay > 0 ? `Ngày ${monthlyPaymentDay} hàng tháng` : "") ||
+    getStringFromUnknownObject(selectedLoanProductData, [
+      "firstPaymentDate",
+      "firstDueDate",
+      "firstPaymentDueDate",
+    ]) ||
+    getStringFromUnknownObject(storedLoanRecommendation, [
+      "firstPaymentDate",
+      "firstDueDate",
+      "firstPaymentDueDate",
+    ]);
+  const processingBranch =
+    getStringFromUnknownObject(finalOfferPreview, [
+      "processingBranch",
+      "branchCode",
+      "branchName",
+    ]) ||
+    getStringFromUnknownObject(selectedLoanProductData, [
+      "processingBranch",
+      "branchCode",
+      "branchName",
+    ]) ||
+    getStringFromUnknownObject(storedLoanRecommendation, [
+      "processingBranch",
+      "branchCode",
+      "branchName",
+    ]);
 
   return (
     <div className="min-h-screen bg-[#f6faf5]">
@@ -972,7 +1090,7 @@ function CustomerAssetDetailScreen() {
           </div>
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleSubmit)}>
+            <form onSubmit={form.handleSubmit(handleSubmit, handleInvalidSubmit)}>
               <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="space-y-5">
                   <SectionCard
@@ -987,6 +1105,7 @@ function CustomerAssetDetailScreen() {
                         label="Họ và tên"
                         required
                         placeholder="Nhập họ và tên"
+                        autoFilled={hasAutoFilledCustomerInfo}
                       />
                       <CustomerAssetTextField
                         form={form}
@@ -995,6 +1114,7 @@ function CustomerAssetDetailScreen() {
                         placeholder="Nhập số CCCD"
                         onlyNumber
                         maxLength={12}
+                        autoFilled={hasAutoFilledCustomerInfo}
                       />
                       <CustomerAssetTextField
                         form={form}
@@ -1003,12 +1123,14 @@ function CustomerAssetDetailScreen() {
                         placeholder="Nhập số điện thoại"
                         onlyNumber
                         maxLength={11}
+                        autoFilled={hasAutoFilledCustomerInfo}
                       />
                       <CustomerAssetTextField
                         form={form}
                         name="dateOfBirth"
                         label="Ngày sinh"
                         placeholder="YYYY-MM-DD"
+                        autoFilled={hasAutoFilledCustomerInfo}
                       />
                       <CustomerAssetSelectField
                         form={form}
@@ -1038,6 +1160,15 @@ function CustomerAssetDetailScreen() {
                         label="Số người phụ thuộc"
                         placeholder="Nhập số người phụ thuộc"
                         onlyNumber
+                        onAfterChange={(value) => {
+                          if (Number(value) > 4) {
+                            form.setValue("dependentCount", "4", {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                            toast.error("Số người phụ thuộc tối đa là 4");
+                          }
+                        }}
                       />
                       <CustomerAssetSelectField
                         form={form}
@@ -1124,7 +1255,7 @@ function CustomerAssetDetailScreen() {
                       {fields.map((field, index) => (
                         <div
                           key={field.id}
-                          className="rounded-xl border border-[#dbe5dd] bg-[#fbfffc] p-5"
+                          className="rounded-xl border border-[#dbe5dd] bg-[#fbfffc] p-5 transition-all duration-200 hover:border-[#b7e4c7] hover:shadow-sm"
                         >
                           <div className="mb-4 flex items-center justify-between">
                             <h3 className="font-bold text-[#111827]">
@@ -1182,7 +1313,7 @@ function CustomerAssetDetailScreen() {
                         type="button"
                         variant="outline"
                         onClick={handleAddReference}
-                        className="h-11 rounded-xl border-[#009b3a] px-5 font-bold text-[#009b3a] hover:bg-[#ecfdf3] hover:text-[#009b3a]"
+                        className="h-11 rounded-xl border-[#009b3a] px-5 font-bold text-[#009b3a] transition-colors hover:bg-[#ecfdf3] hover:text-[#009b3a]"
                       >
                         + Thêm người tham chiếu
                       </Button>
@@ -1313,54 +1444,16 @@ function CustomerAssetDetailScreen() {
                       />
                       <CustomerAssetTextField
                         form={form}
+                        name="registrationNumber"
+                        label="Số đăng ký xe"
+                        placeholder="Nhập số đăng ký xe"
+                        uppercase
+                      />
+                      <CustomerAssetTextField
+                        form={form}
                         name="registrationIssueDate"
                         label="Ngày đăng ký xe"
-                        placeholder="YYYY-MM-DD"
-                      />
-                    </div>
-                  </SectionCard>
-
-                  <SectionCard
-                    title="Tình trạng giấy tờ"
-                    icon={
-                      <DocumentText
-                        size={24}
-                        color="#009b3a"
-                        variant="Outline"
-                      />
-                    }
-                    iconClassName="bg-[#e9f8ee]"
-                  >
-                    <div className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
-                      <CustomerAssetSelectField
-                        form={form}
-                        name="documentStatus"
-                        label="Tình trạng giấy tờ"
-                        placeholder="Chưa có API danh mục"
-                        options={[]}
-                      />
-                      <CustomerAssetSelectField
-                        form={form}
-                        name="legalStatus"
-                        label="Tình trạng pháp lý"
-                        placeholder="Chưa có API danh mục"
-                        options={[]}
-                      />
-                    </div>
-
-                    <div className="mt-5">
-                      <label className="text-sm font-medium text-[#111827]">
-                        Ghi chú tài sản
-                      </label>
-                      <Textarea
-                        value={form.watch("assetNote") || ""}
-                        onChange={(event) =>
-                          form.setValue("assetNote", event.target.value, {
-                            shouldDirty: true,
-                          })
-                        }
-                        placeholder="Nhập ghi chú tài sản"
-                        className="mt-2 min-h-[110px] rounded-xl border border-[#dbe5dd] bg-white px-4 py-3 text-base text-[#111827] shadow-sm placeholder:text-[#94a3b8] focus-visible:ring-1 focus-visible:ring-[#009b3a]"
+                        placeholder="dd-mm-yyyy"
                       />
                     </div>
                   </SectionCard>
@@ -1399,12 +1492,11 @@ function CustomerAssetDetailScreen() {
                   products={recommendedProducts}
                   recommendedProductCode={recommendedProductCode}
                   selectedProductCode={selectedProductCode}
-                  onSelectProduct={(productCode) => {
-                    setSelectedProductCode(productCode);
-                    form.setValue("selectedLoanProductCode", productCode, {
-                      shouldDirty: true,
-                    });
-                  }}
+                  requestedLoanAmount={requestedLoanAmount}
+                  loanTermMonths={loanTermMonths}
+                  paymentMethod={paymentMethod}
+                  firstPaymentDate={firstPaymentDate}
+                  processingBranch={processingBranch}
                   waitingMessage={waitingRecommendationMessage}
                 />
               </div>

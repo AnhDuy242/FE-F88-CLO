@@ -1,5 +1,6 @@
-import type { LoanProductRecommendationProduct } from "@/features/preliminary-info/types/loan-product-recommendation.type";
+﻿import type { LoanProductRecommendationProduct } from "@/features/preliminary-info/types/loan-product-recommendation.type";
 import type { ReferenceOption } from "@/features/preliminary-info/types/reference-data.type";
+import { formatCurrencyVnd } from "@/lib/currency";
 
 type LoanPackageSelectorProps = {
   products: LoanProductRecommendationProduct[];
@@ -13,12 +14,6 @@ type LoanPackageSelectorProps = {
   onSelectProduct: (productCode: string) => void;
   onSelectTerm: (term: string) => void;
 };
-
-function formatCurrencyVnd(value?: number) {
-  const safeValue = Number(value || 0);
-
-  return `${Math.max(safeValue, 0).toLocaleString("vi-VN")} đ`;
-}
 
 function formatPercent(value?: number) {
   const safeValue = Number(value || 0);
@@ -128,7 +123,7 @@ export function LoanPackageSelector({
       {products.length > 0 && (
         <>
           <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
-            {products.slice(0, 3).map((product, index) => {
+            {products.slice(0, 3).map((product) => {
               const isSelected =
                 selectedProductCode === product.productCode ||
                 (!selectedProductCode &&
@@ -136,8 +131,7 @@ export function LoanPackageSelector({
 
               const isRecommended =
                 product.recommended ||
-                product.productCode === recommendedProductCode ||
-                index === 0;
+                product.productCode === recommendedProductCode;
 
               const productMaxAmount = getProductMaxAmount(product);
               const productInterestRate = getProductInterestRate(product);
@@ -304,3 +298,4 @@ export function LoanPackageSelector({
     </div>
   );
 }
+

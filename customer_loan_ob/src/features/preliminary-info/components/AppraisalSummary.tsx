@@ -1,3 +1,5 @@
+import { formatCurrencyVnd } from "@/lib/currency";
+
 type AppraisalSummaryProps = {
   marketValue: number;
   totalDeductionPercent: number;
@@ -7,10 +9,6 @@ type AppraisalSummaryProps = {
   ltv: number;
   isLoading?: boolean;
 };
-
-function formatCurrencyVnd(value: number) {
-  return `${Math.round(value).toLocaleString("vi-VN")} đ`;
-}
 
 export function AppraisalSummary({
   marketValue,

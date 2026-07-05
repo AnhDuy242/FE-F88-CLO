@@ -1,6 +1,7 @@
 import AppHeader from "@/components/shared/AppHeader";
 import AppSideBar from "@/components/shared/AppSideBar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/toast";
 import {
   createRootRoute,
   Outlet,
@@ -42,6 +43,7 @@ function RootLayout() {
       )}
 
       <TanStackRouterDevtools position="bottom-right" initialIsOpen={false} />
+      <Toaster />
     </>
   );
 }

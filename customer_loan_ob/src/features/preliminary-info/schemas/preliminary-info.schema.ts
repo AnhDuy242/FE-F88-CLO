@@ -1,38 +1,33 @@
 import { z } from "zod";
 
-const phoneRegex = /^[0-9]{9,11}$/;
-const validTerms = ["12", "36", "48", "72"];
-
-const getDigitsOnly = (value: string) => {
-  return value.replace(/\D/g, "");
-};
-
-const isPositiveNumberString = (value: string) => {
-  if (!value) return false;
-
-  const normalizedValue = getDigitsOnly(value);
-
-  return /^[0-9]+$/.test(normalizedValue) && Number(normalizedValue) > 0;
-};
+import {
+  isValidAdultBirthDate,
+  isValidCccd,
+  isValidPositiveMoney,
+  isValidVietnameseFullName,
+  isValidVnPhone,
+} from "@/lib/validation";
 
 export const preliminaryInfoSchema = z.object({
-  fullName: z.string().min(1, "Vui lòng nhập họ và tên"),
+  fullName: z
+    .string()
+    .min(1, "Vui lòng nhập họ và tên")
+    .refine(isValidVietnameseFullName, "Họ tên phải là tiếng Việt/chữ cái và có ít nhất 2 từ"),
 
-  identityNumber: z.string().min(1, "Vui lòng nhập số giấy tờ"),
+  identityNumber: z
+    .string()
+    .min(1, "Vui lòng nhập số giấy tờ")
+    .refine(isValidCccd, "CCCD phải gồm đúng 12 số"),
 
   phoneNumber: z
     .string()
     .min(1, "Vui lòng nhập số điện thoại")
-    .refine(
-      (value) => !value || /^[0-9]+$/.test(value),
-      "Số điện thoại chỉ được nhập số",
-    )
-    .refine(
-      (value) => !value || phoneRegex.test(value),
-      "Số điện thoại phải có từ 9 đến 11 số",
-    ),
+    .refine(isValidVnPhone, "Số điện thoại Việt Nam không hợp lệ"),
 
-  dateOfBirth: z.string().min(1, "Vui lòng nhập ngày sinh"),
+  dateOfBirth: z
+    .string()
+    .min(1, "Vui lòng nhập ngày sinh")
+    .refine(isValidAdultBirthDate, "Ngày sinh không hợp lệ hoặc khách hàng chưa đủ tuổi"),
 
   gender: z.string().min(1, "Vui lòng chọn giới tính"),
 
@@ -42,7 +37,7 @@ export const preliminaryInfoSchema = z.object({
     .string()
     .min(1, "Vui lòng nhập thu nhập hàng tháng")
     .refine(
-      (value) => !value || isPositiveNumberString(value),
+      (value) => !value || isValidPositiveMoney(value),
       "Thu nhập hàng tháng phải là số lớn hơn 0",
     ),
 
@@ -52,14 +47,14 @@ export const preliminaryInfoSchema = z.object({
     .string()
     .min(1, "Vui lòng nhập số tiền mong muốn vay")
     .refine(
-      (value) => isPositiveNumberString(value),
+      (value) => isValidPositiveMoney(value),
       "Số tiền mong muốn vay phải là số lớn hơn 0",
     ),
 
   term: z
     .string()
     .min(1, "Vui lòng chọn kỳ hạn")
-    .refine((value) => validTerms.includes(value), "Kỳ hạn không hợp lệ"),
+    .refine((value) => Number.isInteger(Number(value)) && Number(value) > 0, "Kỳ hạn không hợp lệ"),
 
   assetType: z.string().min(1, "Vui lòng chọn loại tài sản"),
   brand: z.string().min(1, "Vui lòng chọn hãng xe"),

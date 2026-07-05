@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as CustomerRouteImport } from './routes/customer'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LoanUploadDocumentsRouteImport } from './routes/loan/upload-documents'
 import { Route as LoanPreliminaryInfoRouteImport } from './routes/loan/preliminary-info'
 import { Route as LoanCustomerIdentifyRouteImport } from './routes/loan/customer-identify'
 import { Route as LoanCustomerAssetDetailRouteImport } from './routes/loan/customer-asset-detail'
@@ -43,6 +44,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoanUploadDocumentsRoute = LoanUploadDocumentsRouteImport.update({
+  id: '/loan/upload-documents',
+  path: '/loan/upload-documents',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoanPreliminaryInfoRoute = LoanPreliminaryInfoRouteImport.update({
   id: '/loan/preliminary-info',
   path: '/loan/preliminary-info',
@@ -68,6 +74,7 @@ export interface FileRoutesByFullPath {
   '/loan/customer-asset-detail': typeof LoanCustomerAssetDetailRoute
   '/loan/customer-identify': typeof LoanCustomerIdentifyRoute
   '/loan/preliminary-info': typeof LoanPreliminaryInfoRoute
+  '/loan/upload-documents': typeof LoanUploadDocumentsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByTo {
   '/loan/customer-asset-detail': typeof LoanCustomerAssetDetailRoute
   '/loan/customer-identify': typeof LoanCustomerIdentifyRoute
   '/loan/preliminary-info': typeof LoanPreliminaryInfoRoute
+  '/loan/upload-documents': typeof LoanUploadDocumentsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -89,6 +97,7 @@ export interface FileRoutesById {
   '/loan/customer-asset-detail': typeof LoanCustomerAssetDetailRoute
   '/loan/customer-identify': typeof LoanCustomerIdentifyRoute
   '/loan/preliminary-info': typeof LoanPreliminaryInfoRoute
+  '/loan/upload-documents': typeof LoanUploadDocumentsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -101,6 +110,7 @@ export interface FileRouteTypes {
     | '/loan/customer-asset-detail'
     | '/loan/customer-identify'
     | '/loan/preliminary-info'
+    | '/loan/upload-documents'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -111,6 +121,7 @@ export interface FileRouteTypes {
     | '/loan/customer-asset-detail'
     | '/loan/customer-identify'
     | '/loan/preliminary-info'
+    | '/loan/upload-documents'
   id:
     | '__root__'
     | '/'
@@ -121,6 +132,7 @@ export interface FileRouteTypes {
     | '/loan/customer-asset-detail'
     | '/loan/customer-identify'
     | '/loan/preliminary-info'
+    | '/loan/upload-documents'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -132,6 +144,7 @@ export interface RootRouteChildren {
   LoanCustomerAssetDetailRoute: typeof LoanCustomerAssetDetailRoute
   LoanCustomerIdentifyRoute: typeof LoanCustomerIdentifyRoute
   LoanPreliminaryInfoRoute: typeof LoanPreliminaryInfoRoute
+  LoanUploadDocumentsRoute: typeof LoanUploadDocumentsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -171,6 +184,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/loan/upload-documents': {
+      id: '/loan/upload-documents'
+      path: '/loan/upload-documents'
+      fullPath: '/loan/upload-documents'
+      preLoaderRoute: typeof LoanUploadDocumentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/loan/preliminary-info': {
       id: '/loan/preliminary-info'
       path: '/loan/preliminary-info'
@@ -204,6 +224,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoanCustomerAssetDetailRoute: LoanCustomerAssetDetailRoute,
   LoanCustomerIdentifyRoute: LoanCustomerIdentifyRoute,
   LoanPreliminaryInfoRoute: LoanPreliminaryInfoRoute,
+  LoanUploadDocumentsRoute: LoanUploadDocumentsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

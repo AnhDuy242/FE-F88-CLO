@@ -55,7 +55,11 @@ export default function AppSideBar() {
       collapsible="icon"
       className="border-none bg-[#008B1D] text-white"
     >
-      <SidebarTrigger className="absolute -right-3 top-6 z-30 h-7 w-7 rounded-full border border-white/20 bg-[#008B1D] text-white shadow-md hover:bg-[#16b116] hover:text-white" />
+      <SidebarTrigger
+        title="Thu gọn hoặc mở rộng sidebar"
+        aria-label="Thu gọn hoặc mở rộng sidebar"
+        className="absolute -right-3 top-6 z-30 h-7 w-7 rounded-full border border-white/20 bg-[#008B1D] text-white shadow-md transition-all duration-200 hover:bg-[#16b116] hover:text-white"
+      />
 
       <SidebarHeader className="bg-[#008B1D] px-4 py-5">
         <div className="flex items-center gap-3">

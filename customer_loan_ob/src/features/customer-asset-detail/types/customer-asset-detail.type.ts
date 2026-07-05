@@ -55,3 +55,12 @@ export type SaveVehicleRegistrationPayload = {
 };
 
 export type Step3ApiResponse = ApiResponse<Record<string, unknown>>;
+
+export type SubmitForApprovalResponse = ApiResponse<{
+  applicationCode?: string;
+  applicationState?: string;
+  approvalCaseCode?: string;
+  eventName?: string;
+  submittedAt?: string;
+  message?: string;
+}>;

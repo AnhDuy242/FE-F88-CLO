@@ -60,3 +60,42 @@ export type LoanProductRecommendationResponse = {
   errorCode?: string | null;
   timestamp?: string;
 };
+
+export type SelectFinalLoanOfferPayload = {
+  productCode: string;
+  requestedAmount?: number;
+  loanTermMonths?: number;
+  paymentMethod?: string;
+  monthlyPaymentDay?: number;
+  processingBranch?: string;
+};
+
+export type FinalLoanOfferPreviewPayload = {
+  requestedAmount?: number;
+  loanTermMonths?: number;
+  paymentMethod?: string;
+  monthlyPaymentDay?: number;
+  processingBranch?: string;
+  limit?: number;
+};
+
+export type FinalLoanOfferResponse = {
+  success?: boolean;
+  message?: string;
+  data?: {
+    applicationCode?: string;
+    selectedProductCode?: string;
+    requestedAmount?: number;
+    loanTermMonths?: number;
+    paymentMethod?: string;
+    monthlyPaymentDay?: number;
+    processingBranch?: string;
+    recommendedProductCode?: string;
+    selectedLoanAmount?: number;
+    estimatedMonthlyPayment?: number;
+    products?: LoanProductRecommendationProduct[];
+    [key: string]: unknown;
+  };
+  errorCode?: string | null;
+  timestamp?: string;
+};

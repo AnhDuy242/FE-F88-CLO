@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { FieldPath, UseFormReturn } from "react-hook-form";
 
 import { Input } from "@/components/ui/input";
+import { formatCurrencyInput } from "@/lib/currency";
 import {
   Select,
   SelectContent,
@@ -35,15 +36,9 @@ type TextFieldProps = FieldProps & {
   maxLength?: number;
   inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
   formatCurrencyVnd?: boolean;
+  onAfterChange?: (value: string) => void;
+  autoFilled?: boolean;
 };
-
-function formatCurrencyVnd(value: string) {
-  const digitsOnly = value.replace(/\D/g, "");
-
-  if (!digitsOnly) return "";
-
-  return digitsOnly.replace(/^0+(?=\d)/, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-}
 
 export function CustomerAssetTextField({
   form,
@@ -56,6 +51,8 @@ export function CustomerAssetTextField({
   maxLength,
   inputMode,
   formatCurrencyVnd: shouldFormatCurrencyVnd,
+  onAfterChange,
+  autoFilled,
 }: TextFieldProps) {
   return (
     <FormField
@@ -78,12 +75,24 @@ export function CustomerAssetTextField({
                 placeholder={placeholder}
                 maxLength={maxLength}
                 inputMode={inputMode}
-                onBlur={field.onBlur}
+                onBlur={(event) => {
+                  const trimmedValue = event.target.value.trim();
+
+                  if (trimmedValue !== event.target.value) {
+                    field.onChange(trimmedValue);
+                    onAfterChange?.(trimmedValue);
+                  }
+
+                  field.onBlur();
+                }}
                 onChange={(event) => {
                   let nextValue = event.target.value;
 
                   if (shouldFormatCurrencyVnd) {
-                    field.onChange(formatCurrencyVnd(nextValue));
+                    const formattedValue = formatCurrencyInput(nextValue);
+
+                    field.onChange(formattedValue);
+                    onAfterChange?.(formattedValue);
                     return;
                   }
 
@@ -96,8 +105,14 @@ export function CustomerAssetTextField({
                   }
 
                   field.onChange(nextValue);
+                  onAfterChange?.(nextValue);
                 }}
-                className="h-12 rounded-xl border border-[#dbe5dd] bg-white px-4 text-base text-[#111827] shadow-sm placeholder:text-[#94a3b8] focus-visible:ring-1 focus-visible:ring-[#009b3a]"
+                className={[
+                  "h-12 rounded-xl border border-[#dbe5dd] bg-white px-4 text-base text-[#111827] shadow-sm transition-colors placeholder:text-[#94a3b8] focus-visible:ring-1 focus-visible:ring-[#009b3a]",
+                  autoFilled
+                    ? "border-[#b7e4c7] bg-[#f2fbf5] font-semibold"
+                    : "",
+                ].join(" ")}
               />
             </FormControl>
 

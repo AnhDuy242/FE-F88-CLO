@@ -34,6 +34,7 @@ import {
 } from "@/features/customer-identify/schemas/customer-identify.schema";
 
 import { customerIdentifyApi } from "@/features/customer-identify/api/customer-identify.api";
+import { loanApplicationDraftApi } from "@/features/loan-onboarding/api/loan-application-draft.api";
 
 import {
   useLoanOnboardingStore,
@@ -111,6 +112,40 @@ function getApiErrorMessage(error: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+function isBlockedLookup(response: CustomerIdentifyResponse | null) {
+  return response?.data?.onboardingPermission === "BLOCKED";
+}
+
+function canCreateCustomerFromLookup(response: CustomerIdentifyResponse | null) {
+  return (
+    response?.data?.found === false &&
+    response.data.lookupStatus === "NOT_FOUND" &&
+    response.data.onboardingPermission === "NEED_CREATE_CUSTOMER"
+  );
+}
+
+function getLookupBlockMessage(response: CustomerIdentifyResponse | null) {
+  const reasonCode = response?.data?.reasonCode;
+
+  if (reasonCode === "CUSTOMER_IDENTITY_NUMBER_MISMATCH") {
+    return "Số giấy tờ đã tồn tại trong hệ thống nhưng thông tin chưa khớp. Vui lòng tra cứu lại khách hàng.";
+  }
+
+  if (reasonCode === "CUSTOMER_PHONE_NUMBER_MISMATCH") {
+    return "Số điện thoại đã tồn tại trong hệ thống nhưng thông tin chưa khớp. Vui lòng tra cứu lại khách hàng.";
+  }
+
+  if (reasonCode === "CUSTOMER_IDENTITY_INFO_MISMATCH") {
+    return "Thông tin định danh đã tồn tại trong hệ thống nhưng họ tên hoặc ngày sinh chưa khớp. Vui lòng kiểm tra lại.";
+  }
+
+  if (reasonCode) {
+    return `Không thể tạo hồ sơ mới cho khách hàng này (${reasonCode}).`;
+  }
+
+  return "Không thể tạo hồ sơ mới cho khách hàng này. Vui lòng kiểm tra lại kết quả tra cứu.";
 }
 
 function getStringFromUnknown(source: unknown, keys: string[]) {
@@ -244,6 +279,7 @@ function CustomerIdentifyScreen() {
   const {
     step1CustomerIdentify,
     setCurrentStep,
+    setDraftInfo,
     setStep1CustomerIdentify,
     setStep2PreliminaryInfo,
     setSelectedCustomer,
@@ -558,7 +594,7 @@ function CustomerIdentifyScreen() {
       ...step1CustomerIdentify,
       ocrData: pendingOcrData || step1CustomerIdentify.ocrData,
     });
-    const customerCode =
+    let customerCode =
       (result ? getMatchedCustomerCode(result) : "") ||
       customerSnapshot.customerCode ||
       step1CustomerIdentify.customerCode;
@@ -576,7 +612,65 @@ function CustomerIdentifyScreen() {
     setOcrStatus(null);
 
     try {
-      setSelectedCustomer(selectedCustomer);
+      if (isBlockedLookup(result)) {
+        throw new Error(getLookupBlockMessage(result));
+      }
+
+      if (!customerCode) {
+        if (!canCreateCustomerFromLookup(result)) {
+          throw new Error(getLookupBlockMessage(result));
+        }
+
+        const createCustomerResponse = await customerIdentifyApi.createCustomer({
+          fullName: values.fullName,
+          identifierNumber: values.identityNumber,
+          phoneNumber: values.phoneNumber,
+          dateOfBirth: formattedDateOfBirth,
+        });
+
+        if (!createCustomerResponse.success || !createCustomerResponse.data) {
+          throw new Error(
+            createCustomerResponse.message ||
+              "Khong the tao khach hang moi. Vui long thu lai.",
+          );
+        }
+
+        customerCode = createCustomerResponse.data.customerCode;
+      }
+
+      const draftResponse = await loanApplicationDraftApi.create({
+        customerCode,
+        customerIdentifyPayload: {
+          ...customerSnapshot,
+          customerCode,
+          dateOfBirth: customerSnapshot.dateOfBirth || formattedDateOfBirth,
+        },
+      });
+
+      if (!draftResponse.success || !draftResponse.data?.draftId) {
+        throw new Error(
+          draftResponse.message ||
+            "Khong the tao ho so vay nhap. Vui long thu lai.",
+        );
+      }
+
+      setDraftInfo({
+        draftId: draftResponse.data.draftId,
+        draftCode: draftResponse.data.draftCode || "",
+        currentStepCode: draftResponse.data.currentStepCode || "",
+      });
+
+      setSelectedCustomer(
+        selectedCustomer
+          ? {
+              ...selectedCustomer,
+              customerCode,
+            }
+          : {
+              ...customerSnapshot,
+              customerCode,
+            },
+      );
 
       setStep1CustomerIdentify({
         ...customerSnapshot,
@@ -588,6 +682,9 @@ function CustomerIdentifyScreen() {
         customerId: customerSnapshot.customerId,
         customerCode,
         customerStatus: customerSnapshot.customerStatus,
+        draftId: draftResponse.data.draftId,
+        draftCode: draftResponse.data.draftCode || "",
+        currentStepCode: draftResponse.data.currentStepCode || "",
         customerCheckResult: result,
         ocrData: pendingOcrData || step1CustomerIdentify.ocrData,
         applicationCode: step1CustomerIdentify.applicationCode,
@@ -600,6 +697,9 @@ function CustomerIdentifyScreen() {
         phoneNumber: customerSnapshot.phoneNumber,
         dateOfBirth: customerSnapshot.dateOfBirth || formattedDateOfBirth,
         gender: customerSnapshot.gender,
+        draftId: draftResponse.data.draftId,
+        draftCode: draftResponse.data.draftCode || "",
+        currentStepCode: draftResponse.data.currentStepCode || "",
         applicationCode: step1CustomerIdentify.applicationCode,
         loanApplicationCode: step1CustomerIdentify.loanApplicationCode,
       });
@@ -636,7 +736,6 @@ function CustomerIdentifyScreen() {
       const lookupPayload = {
         fullName: values.fullName || "",
         dateOfBirth: convertDateToApiFormat(values.dateOfBirth),
-        identifierType: "CCCD",
         identifierNumber: values.identityNumber || "",
         phoneNumber: values.phoneNumber || "",
       };
@@ -990,6 +1089,9 @@ type ResultCardProps = {
 function ResultCard({ result, onCreateNewProfile }: ResultCardProps) {
   const found = Boolean(result?.data?.found);
   const matchedCustomer = result?.data?.matchedCustomer;
+  const canContinue = found && result?.data?.onboardingPermission !== "BLOCKED";
+  const canCreateNewCustomer = canCreateCustomerFromLookup(result);
+  const isBlocked = Boolean(result && !canContinue && !canCreateNewCustomer);
 
   return (
     <Card className="rounded-xl border border-[#dbe5dd] bg-white shadow-none">
@@ -1073,9 +1175,16 @@ function ResultCard({ result, onCreateNewProfile }: ResultCardProps) {
 
             </div>
 
+            {!canContinue && (
+              <p className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+                {getLookupBlockMessage(result)}
+              </p>
+            )}
+
             <div className="mt-5 flex justify-end">
               <Button
                 type="button"
+                disabled={!canContinue}
                 onClick={onCreateNewProfile}
                 className="bg-[#009b3a] text-white hover:bg-[#008232]"
               >
@@ -1102,9 +1211,16 @@ function ResultCard({ result, onCreateNewProfile }: ResultCardProps) {
               </p>
             )}
 
+            {isBlocked && (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+                {getLookupBlockMessage(result)}
+              </p>
+            )}
+
             <div className="mt-5 flex justify-end">
               <Button
                 type="button"
+                disabled={!canCreateNewCustomer}
                 onClick={onCreateNewProfile}
                 className="bg-[#009b3a] text-white hover:bg-[#008232]"
               >

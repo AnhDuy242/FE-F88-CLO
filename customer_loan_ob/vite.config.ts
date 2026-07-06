@@ -22,6 +22,14 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true,
         secure: false,
+        bypass: (req) => {
+          delete req.headers.origin
+        },
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq) => {
+            proxyReq.removeHeader("origin")
+          })
+        },
       },
     },
   },

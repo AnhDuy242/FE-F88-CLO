@@ -25,10 +25,10 @@ import {
   useLoanOnboardingStore,
 } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
 
-import { preliminaryInfoApi } from "@/features/preliminary-info/api/preliminary-info.api";
 import { assetValuationApi } from "@/features/preliminary-info/api/asset-valuation.api";
 import { referenceDataApi } from "@/features/preliminary-info/api/reference-data.api";
 import { loanProductRecommendationApi } from "@/features/preliminary-info/api/loan-product-recommendation.api";
+import { loanApplicationDraftApi } from "@/features/loan-onboarding/api/loan-application-draft.api";
 
 import { BottomActions } from "@/features/preliminary-info/components/BottomActions";
 import { DateOfBirthField } from "@/features/preliminary-info/components/DateOfBirthField";
@@ -43,10 +43,7 @@ import {
   type PreliminaryInfoFormValues,
 } from "@/features/preliminary-info/schemas/preliminary-info.schema";
 
-import type {
-  DeductionItem,
-  SaveLoanApplicationDraftPayload,
-} from "@/features/preliminary-info/types/preliminary-info.type";
+import type { DeductionItem } from "@/features/preliminary-info/types/preliminary-info.type";
 
 import type {
   AssetTypeApiValue,
@@ -405,12 +402,9 @@ function mapDeductionItems(response: unknown): DeductionItem[] {
 
 function PreliminaryInfoScreen() {
   const navigate = useNavigate();
-  const storeApplicationCode = useLoanOnboardingStore(
-    (state) => state.applicationCode,
-  );
-  const setApplicationCode = useLoanOnboardingStore(
-    (state) => state.setApplicationCode,
-  );
+  const storeDraftId = useLoanOnboardingStore((state) => state.draftId);
+  const storeDraftCode = useLoanOnboardingStore((state) => state.draftCode);
+  const setDraftInfo = useLoanOnboardingStore((state) => state.setDraftInfo);
   const setSelectedLoanProduct = useLoanOnboardingStore(
     (state) => state.setSelectedLoanProduct,
   );
@@ -1220,19 +1214,32 @@ function PreliminaryInfoScreen() {
 
   const getValuationMaxLoanAmount = () => maxLoanByAppraisal;
 
-  const getCurrentApplicationCode = () => {
+  const getCurrentDraftId = () => {
     return (
-      storeApplicationCode ||
-      String(step2Session?.applicationCode || "") ||
-      String(step2Session?.loanApplicationCode || "") ||
-      String(step1Identity?.applicationCode || "") ||
-      String(step1Identity?.loanApplicationCode || "")
+      storeDraftId ||
+      String(step2Session?.draftId || "") ||
+      String(step1Identity?.draftId || "")
     );
   };
 
-  const buildSaveDraftPayload = (
+  const getCurrentDraftCode = () => {
+    return (
+      storeDraftCode ||
+      String(step2Session?.draftCode || "") ||
+      String(step1Identity?.draftCode || "")
+    );
+  };
+
+  const buildPreliminaryDraftPayload = (
     values: PreliminaryInfoFormValues,
-  ): SaveLoanApplicationDraftPayload => {
+  ): Record<string, unknown> => {
+    const vehicleVariant = resolvedVehicleVariant?.value || "";
+    const recommendationData = loanRecommendationResult?.data;
+    const selectedProduct =
+      selectedRecommendedProduct ||
+      recommendedProducts.find((item) => item.productCode === selectedProductCode) ||
+      null;
+
     return {
       applicantSnapshot: {
         fullName: values.fullName || "",
@@ -1248,6 +1255,30 @@ function PreliminaryInfoScreen() {
         requestedAmount: parseMoneyInput(values.desiredLoanAmount) ?? 0,
         requestedTenure: Number(values.term || selectedTerm || 0),
       },
+      assetSnapshot: {
+        assetType: mapAssetTypeToApiValue(values.assetType),
+        brand: values.brand || "",
+        model: values.model || "",
+        version: values.version || "",
+        vehicleVariant,
+        manufactureYear: Number(values.manufactureYear || 0),
+        vehicleColor: values.color || "",
+      },
+      valuation: {
+        marketValue,
+        totalDeductionRate: totalDeductionPercent,
+        totalDeductionAmount,
+        finalValue: valueAfterDeduction,
+        loanableValue: maxLoanByAppraisal,
+        selectedDeductionIds,
+        deductionItems: buildDeductionItems(),
+        preview: valuationResult?.data || valuationResult || null,
+        marketPrice: marketPriceResult?.data || marketPriceResult || null,
+      },
+      loanProductRecommendation: recommendationData || null,
+      selectedLoanProduct: selectedProduct,
+      selectedProductCode:
+        selectedProduct?.productCode || selectedProductCode || "",
     };
   };
 
@@ -1300,8 +1331,11 @@ function PreliminaryInfoScreen() {
       firstPaymentDate,
       monthlyPaymentDay: monthlyPaymentDay > 0 ? String(monthlyPaymentDay) : "",
       processingBranch,
-      applicationCode: getCurrentApplicationCode(),
-      loanApplicationCode: getCurrentApplicationCode(),
+      draftId: getCurrentDraftId(),
+      draftCode: getCurrentDraftCode(),
+      currentStepCode: String(
+        step2Session?.currentStepCode || step1Identity?.currentStepCode || "",
+      ),
     } as unknown as Parameters<typeof saveStep2PreliminaryInfo>[0];
 
     saveStep2PreliminaryInfo(nextSessionData);
@@ -1639,27 +1673,33 @@ function PreliminaryInfoScreen() {
 
   const handleSaveDraft = async () => {
     const values = form.getValues();
-    const applicationCode = getCurrentApplicationCode();
+    const draftCode = getCurrentDraftCode();
 
     saveCurrentStep2ToSession(values);
 
     try {
-      if (!applicationCode) {
+      if (!draftCode) {
         throw new Error(
-          "Thieu applicationCode. Vui long hoan tat man dinh danh truoc.",
+          "Thieu draftCode. Vui long hoan tat man dinh danh truoc.",
         );
       }
 
-      const response = await preliminaryInfoApi.saveDraft(
-        applicationCode,
-        buildSaveDraftPayload(values),
+      const response = await loanApplicationDraftApi.savePreliminaryInfo(
+        draftCode,
+        {
+          status: "IN_PROGRESS",
+          payload: buildPreliminaryDraftPayload(values),
+        },
       );
 
-      if (!response.success || !response.data?.applicationCode) {
+      if (!response.success || !response.data?.draftCode) {
         throw new Error(response.message || "Luu nhap that bai.");
       }
 
-      setApplicationCode(response.data.applicationCode);
+      setDraftInfo({
+        draftCode: response.data.draftCode,
+        currentStepCode: response.data.currentStepCode || "",
+      });
     } catch (error) {
       console.error("Lưu nháp lỗi:", error);
     }
@@ -1670,6 +1710,31 @@ function PreliminaryInfoScreen() {
 
     try {
       saveCurrentStep2ToSession(values);
+      const draftCode = getCurrentDraftCode();
+
+      if (!draftCode) {
+        throw new Error(
+          "Thieu draftCode. Vui long hoan tat man dinh danh truoc.",
+        );
+      }
+
+      const response = await loanApplicationDraftApi.completePreliminaryInfo(
+        draftCode,
+        {
+          payload: buildPreliminaryDraftPayload(values),
+        },
+      );
+
+      if (!response.success || !response.data?.draftCode) {
+        throw new Error(
+          response.message || "Khong the luu thong tin buoc 2 len backend.",
+        );
+      }
+
+      setDraftInfo({
+        draftCode: response.data.draftCode,
+        currentStepCode: response.data.currentStepCode || "",
+      });
       setCurrentStep(3);
       toast.success("Đã lưu thông tin bước 2 vào phiên làm việc.");
 

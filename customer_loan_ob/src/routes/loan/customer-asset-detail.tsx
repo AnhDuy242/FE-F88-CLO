@@ -39,6 +39,7 @@ import {
 import { referenceDataApi } from "@/features/preliminary-info/api/reference-data.api";
 import { assetValuationApi } from "@/features/preliminary-info/api/asset-valuation.api";
 import { loanProductRecommendationApi } from "@/features/preliminary-info/api/loan-product-recommendation.api";
+import { loanApplicationDraftApi } from "@/features/loan-onboarding/api/loan-application-draft.api";
 import type { DeductionItem } from "@/features/preliminary-info/types/preliminary-info.type";
 import type { LoanProductRecommendationProduct } from "@/features/preliminary-info/types/loan-product-recommendation.type";
 
@@ -279,6 +280,8 @@ function CustomerAssetDetailScreen() {
   const applicationCode = useLoanOnboardingStore(
     (state) => state.applicationCode,
   );
+  const draftCode = useLoanOnboardingStore((state) => state.draftCode);
+  const setDraftInfo = useLoanOnboardingStore((state) => state.setDraftInfo);
   const setCurrentStep = useLoanOnboardingStore((state) => state.setCurrentStep);
   const setCustomerAssetDetailData = useLoanOnboardingStore(
     (state) => state.setCustomerAssetDetailData,
@@ -1010,13 +1013,76 @@ function CustomerAssetDetailScreen() {
       }
 
       const nextStep3Data = buildStep3Data(values);
-      setCustomerAssetDetailData(nextStep3Data);
-      setAssetData(nextStep3Data.assetData);
-      setReferences(nextStep3Data.references);
-
       const selectedProduct = recommendedProducts.find(
         (product) => product.productCode === selectedProductCode,
       );
+      const currentDraftCode =
+        draftCode ||
+        String(step2PreliminaryInfo.draftCode || "") ||
+        String(step1Identity.draftCode || "");
+
+      if (!currentDraftCode) {
+        throw new Error(
+          "Thieu draftCode. Vui long hoan tat man dinh danh truoc.",
+        );
+      }
+
+      const response =
+        await loanApplicationDraftApi.saveCustomerAssetLoanProposal(
+          currentDraftCode,
+          {
+            status: "IN_PROGRESS",
+            payload: {
+              customerDetail: {
+                fullName: nextStep3Data.fullName,
+                identityNumber: nextStep3Data.identityNumber,
+                phoneNumber: nextStep3Data.phoneNumber,
+                dateOfBirth:
+                  parseDisplayDateToApi(nextStep3Data.dateOfBirth) ||
+                  nextStep3Data.dateOfBirth,
+                gender: nextStep3Data.gender,
+                email: nextStep3Data.email,
+                maritalStatus: nextStep3Data.maritalStatus,
+                dependentCount: nextStep3Data.dependentCount,
+                occupationCode: nextStep3Data.occupationCode,
+                workplaceName: nextStep3Data.workplaceName,
+                incomeSourceCode: nextStep3Data.incomeSourceCode,
+                monthlyIncomeAmount: Number(
+                  nextStep3Data.monthlyIncomeAmount || 0,
+                ),
+                disbursementBankCode: nextStep3Data.disbursementBankCode,
+                disbursementAccountNumber:
+                  nextStep3Data.disbursementAccountNumber,
+                disbursementAccountName:
+                  nextStep3Data.disbursementAccountName,
+                permanentAddress: nextStep3Data.permanentAddress,
+                currentAddress: nextStep3Data.currentAddress,
+              },
+              referencePersons: nextStep3Data.references,
+              assetDetail: nextStep3Data.assetData,
+              preliminaryInfo: step2PreliminaryInfo,
+              valuation: storedLoanRecommendation?.valuation || null,
+              loanProductRecommendation: storedLoanRecommendation || null,
+              selectedLoanProduct: selectedProduct || selectedLoanProductData,
+              selectedLoanProductCode: selectedProductCode || "",
+            },
+          },
+        );
+
+      if (!response.success || !response.data?.draftCode) {
+        throw new Error(
+          response.message || "Khong the luu thong tin buoc 3 len backend.",
+        );
+      }
+
+      setDraftInfo({
+        draftCode: response.data.draftCode,
+        currentStepCode: response.data.currentStepCode || "",
+      });
+
+      setCustomerAssetDetailData(nextStep3Data);
+      setAssetData(nextStep3Data.assetData);
+      setReferences(nextStep3Data.references);
 
       setSelectedLoanProduct(selectedProduct || selectedLoanProductData || null);
       setCurrentStep(4);

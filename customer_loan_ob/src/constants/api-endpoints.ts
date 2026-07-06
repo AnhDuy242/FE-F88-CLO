@@ -26,6 +26,15 @@ export const API_ENDPOINTS = {
       `/loan-applications/${applicationCode}/submit-for-approval`,
   },
 
+  loanApplicationDraft: {
+    create: "/loan-application-drafts",
+    overview: (draftCode: string) => `/loan-application-drafts/${draftCode}`,
+    step: (draftCode: string, stepCode: string) =>
+      `/loan-application-drafts/${draftCode}/steps/${stepCode}`,
+    completeStep: (draftCode: string, stepCode: string) =>
+      `/loan-application-drafts/${draftCode}/steps/${stepCode}/complete`,
+  },
+
   preliminaryInfo: {
     saveDraft: (applicationCode: string) =>
       `/loan-applications/${applicationCode}/draft`,

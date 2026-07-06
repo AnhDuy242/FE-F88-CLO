@@ -69,9 +69,17 @@ function buildCustomerLookupPayload(payload: CustomerIdentifyLookupPayload) {
   return {
     fullName: payload.fullName.trim(),
     dateOfBirth: payload.dateOfBirth.trim(),
-    identifierType: payload.identifierType.trim(),
     identifierNumber: payload.identifierNumber.trim(),
     phoneNumber: payload.phoneNumber.trim(),
+  };
+}
+
+function buildCreateCustomerPayload(payload: CreateCustomerPayload) {
+  return {
+    fullName: payload.fullName.trim(),
+    identifierNumber: payload.identifierNumber.trim(),
+    phoneNumber: payload.phoneNumber.trim(),
+    dateOfBirth: payload.dateOfBirth.trim(),
   };
 }
 
@@ -109,7 +117,7 @@ export const customerIdentifyApi = {
   ): Promise<CreateCustomerResponse> => {
     return axiosClient.post<CreateCustomerResponse, CreateCustomerResponse>(
       API_ENDPOINTS.customerIdentify.createCustomer,
-      payload,
+      buildCreateCustomerPayload(payload),
       {
         headers: {
           "Content-Type": "application/json",

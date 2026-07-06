@@ -5,17 +5,24 @@ function getApiUrl() {
 
   try {
     const url = new URL(apiUrl);
+    const isLocalBackend =
+      url.port === "8080" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
 
-    if (url.hostname === "localhost" && url.port === "8080") {
+    if (isLocalBackend) {
       return url.pathname.replace(/\/$/, "");
     }
   } catch {
-    return apiUrl.replace(/\/$/, "");
+    return normalizeApiPath(apiUrl);
   }
 
-  return apiUrl.replace(/\/$/, "");
+  return normalizeApiPath(apiUrl);
 }
 
 export const ENV = {
   API_URL: getApiUrl(),
 };
+
+function normalizeApiPath(value: string) {
+  return value.replace(/\/$/, "");
+}

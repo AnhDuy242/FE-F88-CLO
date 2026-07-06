@@ -31,6 +31,9 @@ export type Step1IdentityStorage = {
   applicationCode?: string;
   loanApplicationCode?: string;
   loanApplicationId?: string;
+  draftId?: string;
+  draftCode?: string;
+  currentStepCode?: string;
 
   documentType?: string;
   sex?: string;
@@ -81,6 +84,9 @@ export type Step2PreliminaryInfoStorage = {
   applicationCode?: string;
   loanApplicationCode?: string;
   loanApplicationId?: string;
+  draftId?: string;
+  draftCode?: string;
+  currentStepCode?: string;
 
   [key: string]: unknown;
 };
@@ -99,6 +105,9 @@ export type Step1CustomerIdentifyState = {
   applicationCode: string;
   loanApplicationCode: string;
   loanApplicationId: string;
+  draftId: string;
+  draftCode: string;
+  currentStepCode: string;
 
   sex: string;
   gender: string;
@@ -213,6 +222,9 @@ export type CustomerAssetDetailState = {
 
 type LoanOnboardingStoreState = {
   applicationCode: string;
+  draftId: string;
+  draftCode: string;
+  currentStepCode: string;
   currentStep: number;
   ocrData: Record<string, unknown> | null;
   customerIdentifyData: CustomerIdentifyResponse | null;
@@ -231,6 +243,11 @@ type LoanOnboardingStoreState = {
   step2PreliminaryInfo: Step2PreliminaryInfoState;
 
   setApplicationCode: (applicationCode: string) => void;
+  setDraftInfo: (data: {
+    draftId?: string;
+    draftCode?: string;
+    currentStepCode?: string;
+  }) => void;
   setCurrentStep: (currentStep: number) => void;
 
   setStep1CustomerIdentify: (
@@ -283,6 +300,9 @@ const initialStep1CustomerIdentify: Step1CustomerIdentifyState = {
   applicationCode: "",
   loanApplicationCode: "",
   loanApplicationId: "",
+  draftId: "",
+  draftCode: "",
+  currentStepCode: "",
 
   sex: "",
   gender: "",
@@ -485,6 +505,9 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
   persist(
     (set, get) => ({
       applicationCode: "",
+      draftId: "",
+      draftCode: "",
+      currentStepCode: "",
       currentStep: 1,
       ocrData: null,
       customerIdentifyData: null,
@@ -516,6 +539,33 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
             loanApplicationCode: applicationCode,
           },
         }));
+      },
+
+      setDraftInfo: (data) => {
+        set((state) => {
+          const draftId = data.draftId ?? state.draftId;
+          const draftCode = data.draftCode ?? state.draftCode;
+          const currentStepCode =
+            data.currentStepCode ?? state.currentStepCode;
+
+          return {
+            draftId,
+            draftCode,
+            currentStepCode,
+            step1CustomerIdentify: {
+              ...state.step1CustomerIdentify,
+              draftId,
+              draftCode,
+              currentStepCode,
+            },
+            step2PreliminaryInfo: {
+              ...state.step2PreliminaryInfo,
+              draftId,
+              draftCode,
+              currentStepCode,
+            },
+          };
+        });
       },
 
       setCurrentStep: (currentStep) => {
@@ -733,6 +783,9 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
       resetLoanOnboarding: () => {
         set({
           applicationCode: "",
+          draftId: "",
+          draftCode: "",
+          currentStepCode: "",
           currentStep: 1,
           ocrData: null,
           customerIdentifyData: null,
@@ -768,6 +821,9 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
 
       partialize: (state) => ({
         applicationCode: state.applicationCode,
+        draftId: state.draftId,
+        draftCode: state.draftCode,
+        currentStepCode: state.currentStepCode,
         currentStep: state.currentStep,
         ocrData: state.ocrData,
         customerIdentifyData: state.customerIdentifyData,
@@ -810,6 +866,9 @@ export function saveStep1Identity(data: Step1IdentityStorage) {
     applicationCode: String(data.applicationCode || ""),
     loanApplicationCode: String(data.loanApplicationCode || ""),
     loanApplicationId: String(data.loanApplicationId || ""),
+    draftId: String(data.draftId || ""),
+    draftCode: String(data.draftCode || ""),
+    currentStepCode: String(data.currentStepCode || ""),
 
     documentType: String(data.documentType || ""),
     sex: String(data.sex || ""),

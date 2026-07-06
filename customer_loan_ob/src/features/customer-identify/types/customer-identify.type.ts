@@ -32,7 +32,6 @@ export type CustomerIdentifyPayload = {
 export type CustomerIdentifyLookupPayload = {
   fullName: string;
   dateOfBirth: string;
-  identifierType: string;
   identifierNumber: string;
   phoneNumber: string;
 };

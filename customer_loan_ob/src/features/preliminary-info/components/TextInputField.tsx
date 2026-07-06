@@ -1,8 +1,8 @@
 import type { InputHTMLAttributes } from "react";
 import type { FieldPath, UseFormReturn } from "react-hook-form";
 
+import { MoneyInput } from "@/components/shared/MoneyInput";
 import { Input } from "@/components/ui/input";
-import { formatCurrencyInput } from "@/lib/currency";
 
 import {
   FormControl,
@@ -50,6 +50,13 @@ export function TextInputField({
       render={({ field }) => {
         const fieldValue =
           typeof field.value === "string" ? field.value : "";
+        const inputClassName = [
+          "h-12 rounded-xl border border-[#dbe5dd] bg-white px-4 text-base text-[#111827] shadow-sm placeholder:text-[#94a3b8] focus-visible:ring-1 focus-visible:ring-[#009b3a]",
+          autoFilled ? "border-[#b7e4c7] bg-[#e8f8ee]" : "",
+          className,
+        ]
+          .filter(Boolean)
+          .join(" ");
 
         return (
           <FormItem>
@@ -58,50 +65,51 @@ export function TextInputField({
             </FormLabel>
 
             <FormControl>
-              <Input
-                name={field.name}
-                ref={field.ref}
-                value={fieldValue}
-                placeholder={placeholder}
-                maxLength={maxLength}
-                inputMode={inputMode}
-                onBlur={(event) => {
-                  const trimmedValue = event.target.value.trim();
+              {shouldFormatCurrencyVnd ? (
+                <MoneyInput
+                  name={field.name}
+                  ref={field.ref}
+                  value={fieldValue}
+                  onValueChange={field.onChange}
+                  onBlur={field.onBlur}
+                  placeholder={placeholder}
+                  maxLength={maxLength}
+                  inputMode={inputMode}
+                  className={inputClassName}
+                />
+              ) : (
+                <Input
+                  name={field.name}
+                  ref={field.ref}
+                  value={fieldValue}
+                  placeholder={placeholder}
+                  maxLength={maxLength}
+                  inputMode={inputMode}
+                  onBlur={(event) => {
+                    const trimmedValue = event.target.value.trim();
 
-                  if (trimmedValue !== event.target.value) {
-                    field.onChange(trimmedValue);
-                  }
+                    if (trimmedValue !== event.target.value) {
+                      field.onChange(trimmedValue);
+                    }
 
-                  field.onBlur();
-                }}
-                onChange={(event) => {
-                  let nextValue = event.target.value;
+                    field.onBlur();
+                  }}
+                  onChange={(event) => {
+                    let nextValue = event.target.value;
 
-                  if (shouldFormatCurrencyVnd) {
-                    field.onChange(formatCurrencyInput(nextValue));
-                    return;
-                  }
+                    if (onlyNumber) {
+                      nextValue = nextValue.replace(/\D/g, "");
+                    }
 
-                  if (onlyNumber) {
-                    nextValue = nextValue.replace(/\D/g, "");
-                  }
+                    if (uppercase) {
+                      nextValue = nextValue.toUpperCase();
+                    }
 
-                  if (uppercase) {
-                    nextValue = nextValue.toUpperCase();
-                  }
-
-                  field.onChange(nextValue);
-                }}
-                className={[
-                  "h-12 rounded-xl border border-[#dbe5dd] bg-white px-4 text-base text-[#111827] shadow-sm placeholder:text-[#94a3b8] focus-visible:ring-1 focus-visible:ring-[#009b3a]",
-                  autoFilled
-                    ? "border-[#b7e4c7] bg-[#e8f8ee]"
-                    : "",
-                  className,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              />
+                    field.onChange(nextValue);
+                  }}
+                  className={inputClassName}
+                />
+              )}
             </FormControl>
 
             <FormMessage className="text-red-500" />

@@ -30,6 +30,11 @@ export type LoanProductRecommendationProduct = {
   estimatedMonthlyPayment?: number;
 
   tenor?: number;
+  term?: number;
+  loanTerm?: number;
+  loanTermMonths?: number;
+  durationMonths?: number;
+  selectedTenor?: number;
   supportedTermMonths?: number[];
   recommended?: boolean;
 
@@ -79,6 +84,18 @@ export type FinalLoanOfferPreviewPayload = {
   limit?: number;
 };
 
+export type LoanScoringResponseData = {
+  scoreGrade?: string;
+  overallScore?: number;
+  aScore?: number;
+  bScore?: number;
+  aScoreWeight?: number;
+  bScoreWeight?: number;
+  ltvPercent?: number;
+  matchedRuleCode?: string;
+  matchedRuleName?: string;
+};
+
 export type FinalLoanOfferResponse = {
   success?: boolean;
   message?: string;
@@ -93,6 +110,7 @@ export type FinalLoanOfferResponse = {
     recommendedProductCode?: string;
     selectedLoanAmount?: number;
     estimatedMonthlyPayment?: number;
+    scoring?: LoanScoringResponseData;
     products?: LoanProductRecommendationProduct[];
     [key: string]: unknown;
   };

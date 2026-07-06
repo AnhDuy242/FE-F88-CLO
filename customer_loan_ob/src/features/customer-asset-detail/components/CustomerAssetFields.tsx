@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { FieldPath, UseFormReturn } from "react-hook-form";
 
 import { AppDatePicker } from "@/components/shared/AppDatePicker";
+import { MoneyInput } from "@/components/shared/MoneyInput";
 import {
   FormControl,
   FormField,
@@ -18,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatCurrencyInput } from "@/lib/currency";
 
 import type { CustomerAssetDetailFormValues } from "@/features/customer-asset-detail/schemas/customer-asset-detail.schema";
 import type { ReferenceOption } from "@/features/customer-asset-detail/types/customer-asset-detail.type";
@@ -61,6 +61,10 @@ export function CustomerAssetTextField({
       name={name}
       render={({ field }) => {
         const fieldValue = typeof field.value === "string" ? field.value : "";
+        const inputClassName = [
+          "h-12 rounded-xl border border-[#dbe5dd] bg-white px-4 text-base text-[#111827] shadow-sm transition-colors placeholder:text-[#94a3b8] focus-visible:ring-1 focus-visible:ring-[#009b3a]",
+          autoFilled ? "border-[#b7e4c7] bg-[#e8f8ee]" : "",
+        ].join(" ");
 
         return (
           <FormItem>
@@ -69,50 +73,56 @@ export function CustomerAssetTextField({
             </FormLabel>
 
             <FormControl>
-              <Input
-                name={field.name}
-                ref={field.ref}
-                value={fieldValue}
-                placeholder={placeholder}
-                maxLength={maxLength}
-                inputMode={inputMode}
-                onBlur={(event) => {
-                  const trimmedValue = event.target.value.trim();
+              {shouldFormatCurrencyVnd ? (
+                <MoneyInput
+                  name={field.name}
+                  ref={field.ref}
+                  value={fieldValue}
+                  onValueChange={(rawDigits) => {
+                    field.onChange(rawDigits);
+                    onAfterChange?.(rawDigits);
+                  }}
+                  onBlur={field.onBlur}
+                  placeholder={placeholder}
+                  maxLength={maxLength}
+                  inputMode={inputMode}
+                  className={inputClassName}
+                />
+              ) : (
+                <Input
+                  name={field.name}
+                  ref={field.ref}
+                  value={fieldValue}
+                  placeholder={placeholder}
+                  maxLength={maxLength}
+                  inputMode={inputMode}
+                  onBlur={(event) => {
+                    const trimmedValue = event.target.value.trim();
 
-                  if (trimmedValue !== event.target.value) {
-                    field.onChange(trimmedValue);
-                    onAfterChange?.(trimmedValue);
-                  }
+                    if (trimmedValue !== event.target.value) {
+                      field.onChange(trimmedValue);
+                      onAfterChange?.(trimmedValue);
+                    }
 
-                  field.onBlur();
-                }}
-                onChange={(event) => {
-                  let nextValue = event.target.value;
+                    field.onBlur();
+                  }}
+                  onChange={(event) => {
+                    let nextValue = event.target.value;
 
-                  if (shouldFormatCurrencyVnd) {
-                    const formattedValue = formatCurrencyInput(nextValue);
+                    if (onlyNumber) {
+                      nextValue = nextValue.replace(/\D/g, "");
+                    }
 
-                    field.onChange(formattedValue);
-                    onAfterChange?.(formattedValue);
-                    return;
-                  }
+                    if (uppercase) {
+                      nextValue = nextValue.toUpperCase();
+                    }
 
-                  if (onlyNumber) {
-                    nextValue = nextValue.replace(/\D/g, "");
-                  }
-
-                  if (uppercase) {
-                    nextValue = nextValue.toUpperCase();
-                  }
-
-                  field.onChange(nextValue);
-                  onAfterChange?.(nextValue);
-                }}
-                className={[
-                  "h-12 rounded-xl border border-[#dbe5dd] bg-white px-4 text-base text-[#111827] shadow-sm transition-colors placeholder:text-[#94a3b8] focus-visible:ring-1 focus-visible:ring-[#009b3a]",
-                  autoFilled ? "border-[#b7e4c7] bg-[#e8f8ee]" : "",
-                ].join(" ")}
-              />
+                    field.onChange(nextValue);
+                    onAfterChange?.(nextValue);
+                  }}
+                  className={inputClassName}
+                />
+              )}
             </FormControl>
 
             <FormMessage className="text-red-500" />

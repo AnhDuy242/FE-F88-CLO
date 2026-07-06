@@ -1,3 +1,5 @@
+import { parseMoneyInput } from "@/lib/currency";
+
 const vietnameseNameRegex = /^[A-Za-zÀ-ỹ]+(?:[\s'-][A-Za-zÀ-ỹ]+)+$/;
 const repeatedCharRegex = /(.)\1{4,}/i;
 const vnPhoneRegex = /^(0)(3|5|7|8|9)[0-9]{8}$/;
@@ -34,9 +36,9 @@ export function isValidVnPhone(value?: string) {
 }
 
 export function isValidPositiveMoney(value?: string) {
-  const digitsOnly = (value || "").replace(/\D/g, "");
+  const parsedValue = parseMoneyInput(value);
 
-  return digitsOnly !== "" && Number(digitsOnly) > 0;
+  return parsedValue !== null && parsedValue > 0;
 }
 
 export function isValidPastDate(value?: string) {

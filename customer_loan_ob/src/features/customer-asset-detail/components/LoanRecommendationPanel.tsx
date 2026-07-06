@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { formatCurrencyVnd } from "@/lib/currency";
 
+import { CustomerRiskScoringSection } from "@/features/customer-asset-detail/components/CustomerRiskScoringSection";
+import type { CustomerRiskScoringData } from "@/features/customer-asset-detail/types/customer-risk-scoring.type";
 import type { LoanProductRecommendationProduct } from "@/features/preliminary-info/types/loan-product-recommendation.type";
 
 type LoanRecommendationPanelProps = {
@@ -14,19 +16,11 @@ type LoanRecommendationPanelProps = {
   products: LoanProductRecommendationProduct[];
   requestedLoanAmount: number;
   loanTermMonths: number;
-  paymentMethod?: string;
-  firstPaymentDate?: string;
-  processingBranch?: string;
+  scoring: CustomerRiskScoringData | null;
   recommendedProductCode?: string;
   selectedProductCode?: string;
   waitingMessage: string;
 };
-
-function formatText(value?: string | number) {
-  const normalizedValue = String(value || "").trim();
-
-  return normalizedValue || "Chưa có dữ liệu";
-}
 
 function getDisplayProduct(
   products: LoanProductRecommendationProduct[],
@@ -81,9 +75,7 @@ export function LoanRecommendationPanel({
   products,
   requestedLoanAmount,
   loanTermMonths,
-  paymentMethod,
-  firstPaymentDate,
-  processingBranch,
+  scoring,
   recommendedProductCode,
   selectedProductCode,
   waitingMessage,
@@ -153,13 +145,9 @@ export function LoanRecommendationPanel({
           />
         </PanelSection>
 
-        <PanelSection title="B. Thông tin khoản vay">
-          <InfoRow label="Hình thức thanh toán" value={formatText(paymentMethod)} />
-          <InfoRow label="Ngày thanh toán kỳ đầu" value={formatText(firstPaymentDate)} />
-          <InfoRow label="Chi nhánh xử lý" value={formatText(processingBranch)} />
-        </PanelSection>
+        <CustomerRiskScoringSection scoring={scoring} />
 
-        <PanelSection title="C. Gói vay cuối cùng được đề xuất">
+        <PanelSection title="B. Gói vay cuối cùng được đề xuất">
           {isLoading ? (
             <div className="rounded-xl border border-[#dbe5dd] bg-[#f8fbf8] px-4 py-5 text-sm font-medium text-[#64748b]">
               Đang lấy đề xuất gói vay...

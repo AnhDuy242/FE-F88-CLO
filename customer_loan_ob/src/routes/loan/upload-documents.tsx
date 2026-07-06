@@ -5,7 +5,7 @@ import { AlertCircle, CheckCircle2, FileText, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
-import { parseCurrencyToNumber } from "@/lib/currency";
+import { parseMoneyInput } from "@/lib/currency";
 import { parseDisplayDateToApi } from "@/lib/date";
 import {
   Accordion,
@@ -444,11 +444,11 @@ function UploadDocumentsScreen() {
         identifierNumber: step2PreliminaryInfo.identityNumber || step1CustomerIdentify.identityNumber,
         phoneNumber: step2PreliminaryInfo.phoneNumber || step1CustomerIdentify.phoneNumber,
         occupation: step2PreliminaryInfo.job,
-        monthlyIncome: parseCurrencyToNumber(step2PreliminaryInfo.monthlyIncome),
+        monthlyIncome: parseMoneyInput(step2PreliminaryInfo.monthlyIncome) ?? 0,
       },
       loanRequest: {
         loanPurpose: step2PreliminaryInfo.loanPurpose,
-        requestedAmount: parseCurrencyToNumber(step2PreliminaryInfo.desiredLoanAmount),
+        requestedAmount: parseMoneyInput(step2PreliminaryInfo.desiredLoanAmount) ?? 0,
         requestedTenure: Number(step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0),
       },
     });
@@ -463,7 +463,7 @@ function UploadDocumentsScreen() {
       maritalStatus: step3Data.maritalStatus,
       occupationCode: step3Data.occupationCode,
       incomeSourceCode: step3Data.incomeSourceCode,
-      monthlyIncomeAmount: parseCurrencyToNumber(step3Data.monthlyIncomeAmount),
+      monthlyIncomeAmount: parseMoneyInput(step3Data.monthlyIncomeAmount) ?? 0,
       disbursementBankCode: step3Data.disbursementBankCode,
       disbursementAccountNumber: step3Data.disbursementAccountNumber,
       disbursementAccountName: step3Data.disbursementAccountName,
@@ -521,7 +521,7 @@ function UploadDocumentsScreen() {
 
     await loanProductRecommendationApi.selectFinalOffer(nextApplicationCode, {
       productCode: selectedProductCode,
-      requestedAmount: parseCurrencyToNumber(step2PreliminaryInfo.desiredLoanAmount),
+      requestedAmount: parseMoneyInput(step2PreliminaryInfo.desiredLoanAmount) ?? 0,
       loanTermMonths: Number(step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0),
     });
   };

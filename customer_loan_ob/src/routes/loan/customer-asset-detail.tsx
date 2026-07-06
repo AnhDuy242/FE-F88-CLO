@@ -7,7 +7,7 @@ import { Car, User } from "iconsax-react";
 import { Button } from "@/components/ui/button";
 import { Form } from "@/components/ui/form";
 import { toast } from "@/components/ui/toast";
-import { getCurrencyDigits, parseCurrencyToNumber } from "@/lib/currency";
+import { onlyDigits, parseMoneyInput } from "@/lib/currency";
 import {
   normalizeDateForDisplay,
   parseDisplayDateToApi,
@@ -22,6 +22,7 @@ import {
   CustomerAssetTextField,
 } from "@/features/customer-asset-detail/components/CustomerAssetFields";
 import { LoanRecommendationPanel } from "@/features/customer-asset-detail/components/LoanRecommendationPanel";
+import { mapCustomerRiskScoring } from "@/features/customer-asset-detail/utils/customer-risk-scoring.mapper";
 import {
   customerAssetDetailSchema,
   type CustomerAssetDetailFormValues,
@@ -92,7 +93,7 @@ function getNumberFromUnknownObject(source: unknown, keys: string[]) {
 }
 
 function getDigitsOnly(value?: string) {
-  return getCurrencyDigits(value);
+  return onlyDigits(value);
 }
 
 function normalizeRegistrationDateForDisplay(value?: string) {
@@ -101,14 +102,6 @@ function normalizeRegistrationDateForDisplay(value?: string) {
 
 function normalizeRegistrationDateForApi(value?: string) {
   return parseDisplayDateToApi(value);
-}
-
-function formatLoanDateForPanel(value?: string) {
-  const trimmedValue = (value || "").trim();
-
-  if (!trimmedValue) return "";
-
-  return normalizeDateForDisplay(trimmedValue) || trimmedValue;
 }
 
 function normalizeGender(value?: string) {
@@ -364,10 +357,11 @@ function CustomerAssetDetailScreen() {
         step3Data?.occupationCode || step2PreliminaryInfo.job || "",
       workplaceName: step3Data?.workplaceName || "",
       incomeSourceCode: step3Data?.incomeSourceCode || "",
-      monthlyIncomeAmount:
+      monthlyIncomeAmount: getDigitsOnly(
         step3Data?.monthlyIncomeAmount ||
-        step2PreliminaryInfo.monthlyIncome ||
-        "",
+          step2PreliminaryInfo.monthlyIncome ||
+          "",
+      ),
       disbursementBankCode: step3Data?.disbursementBankCode || "",
       disbursementAccountNumber: step3Data?.disbursementAccountNumber || "",
       disbursementAccountName: step3Data?.disbursementAccountName || "",
@@ -512,23 +506,6 @@ function CustomerAssetDetailScreen() {
       "branchName",
       "branchCode",
     ]);
-  const storedFirstPaymentDate =
-    getStringFromUnknownObject(step2PreliminaryInfo, [
-      "firstPaymentDate",
-      "firstDueDate",
-      "firstPaymentDueDate",
-    ]) ||
-    getStringFromUnknownObject(selectedLoanProductData, [
-      "firstPaymentDate",
-      "firstDueDate",
-      "firstPaymentDueDate",
-    ]) ||
-    getStringFromUnknownObject(storedLoanRecommendation, [
-      "firstPaymentDate",
-      "firstDueDate",
-      "firstPaymentDueDate",
-    ]);
-
   const [genderOptions, setGenderOptions] = useState<ReferenceOption[]>([]);
   const [maritalStatusOptions, setMaritalStatusOptions] = useState<
     ReferenceOption[]
@@ -576,9 +553,9 @@ function CustomerAssetDetailScreen() {
   }, [form, selectedProductCode]);
 
   useEffect(() => {
-    const requestedAmount = parseCurrencyToNumber(
+    const requestedAmount = parseMoneyInput(
       step2PreliminaryInfo.desiredLoanAmount,
-    );
+    ) ?? 0;
     const loanTermMonths = Number(
       step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0,
     );
@@ -829,9 +806,9 @@ function CustomerAssetDetailScreen() {
   useEffect(() => {
     const runRecommendation = async () => {
       const loanPurpose = step2PreliminaryInfo.loanPurpose;
-    const requestedLoanAmount = parseCurrencyToNumber(
+    const requestedLoanAmount = parseMoneyInput(
       step2PreliminaryInfo.desiredLoanAmount,
-    );
+    ) ?? 0;
       const requestedTenor = Number(
         step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0,
       );
@@ -1092,35 +1069,15 @@ function CustomerAssetDetailScreen() {
   const selectedDeductionLabels = selectedDeductionItems.map((item) => item.label);
   const waitingRecommendationMessage =
     "Chưa đủ dữ liệu để lấy đề xuất gói vay từ backend.";
-  const requestedLoanAmount = parseCurrencyToNumber(
+  const requestedLoanAmount = parseMoneyInput(
     step2PreliminaryInfo.desiredLoanAmount,
-  );
+  ) ?? 0;
   const loanTermMonths = Number(
     step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0,
   );
-  const paymentMethod =
-    storedPaymentMethod ||
-    getStringFromUnknownObject(finalOfferPreview, ["paymentMethod"]);
-  const monthlyPaymentDay =
-    storedMonthlyPaymentDay ||
-    getNumberFromUnknownObject(finalOfferPreview, ["monthlyPaymentDay"]);
-  const firstPaymentDateValue =
-    storedFirstPaymentDate ||
-    getStringFromUnknownObject(finalOfferPreview, [
-      "firstPaymentDate",
-      "firstDueDate",
-      "firstPaymentDueDate",
-    ]);
-  const firstPaymentDate =
-    formatLoanDateForPanel(firstPaymentDateValue) ||
-    (monthlyPaymentDay > 0 ? `Ngày ${monthlyPaymentDay} hàng tháng` : "");
-  const processingBranch =
-    storedProcessingBranch ||
-    getStringFromUnknownObject(finalOfferPreview, [
-      "processingBranch",
-      "branchCode",
-      "branchName",
-    ]);
+  const customerRiskScoring = mapCustomerRiskScoring(
+    finalOfferPreview?.scoring || storedLoanRecommendation?.scoring,
+  );
 
   return (
     <div className="min-h-screen bg-[#f6faf5]">
@@ -1537,9 +1494,7 @@ function CustomerAssetDetailScreen() {
                   selectedProductCode={selectedProductCode}
                   requestedLoanAmount={requestedLoanAmount}
                   loanTermMonths={loanTermMonths}
-                  paymentMethod={paymentMethod}
-                  firstPaymentDate={firstPaymentDate}
-                  processingBranch={processingBranch}
+                  scoring={customerRiskScoring}
                   waitingMessage={waitingRecommendationMessage}
                 />
               </div>

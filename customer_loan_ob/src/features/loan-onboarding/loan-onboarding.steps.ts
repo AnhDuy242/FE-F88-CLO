@@ -9,7 +9,7 @@ export const loanOnboardingSteps = [
   },
   {
     step: 3,
-    title: "Thông tin chi tiết khách hàng và tài sản",
+    title: "Chi tiết và đề xuất gói vay",
   },
   {
     step: 4,

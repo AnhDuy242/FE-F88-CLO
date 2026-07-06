@@ -8,10 +8,9 @@ import { Calculator, Car, DocumentText, TickCircle } from "iconsax-react";
 import { Form } from "@/components/ui/form";
 import { toast } from "@/components/ui/toast";
 import {
-  formatCurrencyInput,
   formatCurrencyVnd,
-  getCurrencyDigits,
-  parseCurrencyToNumber,
+  onlyDigits,
+  parseMoneyInput,
 } from "@/lib/currency";
 import {
   normalizeDateForDisplay,
@@ -73,11 +72,11 @@ export const Route = createFileRoute("/loan/preliminary-info")({
 const CURRENT_STEP = 2;
 
 function getDigitsOnly(value?: string) {
-  return getCurrencyDigits(value);
+  return onlyDigits(value);
 }
 
-function formatCurrencyVndForDefaultValue(value?: string) {
-  return formatCurrencyInput(value);
+function getMoneyRawDigitsForDefaultValue(value?: string) {
+  return onlyDigits(value);
 }
 
 function getStringFromUnknownObject(source: unknown, keys: string[]) {
@@ -574,11 +573,11 @@ function PreliminaryInfoScreen() {
 
       gender: initialGender,
       job: step2Session?.job || "",
-      monthlyIncome: formatCurrencyVndForDefaultValue(
+      monthlyIncome: getMoneyRawDigitsForDefaultValue(
         step2Session?.monthlyIncome,
       ),
       loanPurpose: step2Session?.loanPurpose || "",
-      desiredLoanAmount: formatCurrencyVndForDefaultValue(
+      desiredLoanAmount: getMoneyRawDigitsForDefaultValue(
         step2Session?.desiredLoanAmount,
       ),
       term: step2Session?.term || step2Session?.selectedTerm || "",
@@ -1242,11 +1241,11 @@ function PreliminaryInfoScreen() {
         identifierNumber: values.identityNumber || "",
         phoneNumber: values.phoneNumber || "",
         occupation: values.job || "",
-        monthlyIncome: parseCurrencyToNumber(values.monthlyIncome),
+        monthlyIncome: parseMoneyInput(values.monthlyIncome) ?? 0,
       },
       loanRequest: {
         loanPurpose: values.loanPurpose || "",
-        requestedAmount: parseCurrencyToNumber(values.desiredLoanAmount),
+        requestedAmount: parseMoneyInput(values.desiredLoanAmount) ?? 0,
         requestedTenure: Number(values.term || selectedTerm || 0),
       },
     };
@@ -1528,7 +1527,7 @@ function PreliminaryInfoScreen() {
       clearTimeout(loanRecommendationTimerRef.current);
     }
 
-    const requestedLoanAmount = parseCurrencyToNumber(watchedDesiredLoanAmount);
+    const requestedLoanAmount = parseMoneyInput(watchedDesiredLoanAmount) ?? 0;
 
     if (
       !watchedLoanPurpose ||
@@ -2074,12 +2073,15 @@ function PreliminaryInfoScreen() {
                     loanRecommendationResult?.data?.recommendedProductCode
                   }
                   selectedProductCode={selectedProductCode}
-                  selectedTerm={selectedTerm}
-                  termOptions={loanTermOptions}
+                  selectedTerm={String(
+                    watchedTerm ||
+                      loanRecommendationResult?.data?.requestedTermMonths ||
+                      selectedTerm ||
+                      "",
+                  )}
                   isLoading={isLoanRecommendationLoading}
                   error={loanRecommendationError}
                   onSelectProduct={setSelectedProductCode}
-                  onSelectTerm={handleSelectTerm}
                 />
               </SectionCard>
 

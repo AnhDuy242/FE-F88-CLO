@@ -1,29 +1,42 @@
-export function getCurrencyDigits(value?: string | number | null) {
+export function onlyDigits(value?: string | number | null) {
   return String(value ?? "").replace(/\D/g, "");
 }
 
-export function formatCurrencyInput(value?: string | number | null) {
-  const digitsOnly = getCurrencyDigits(value);
+export function formatMoneyInput(value?: string | number | null) {
+  const digitsOnly = onlyDigits(value);
 
   if (!digitsOnly) return "";
 
-  const normalizedValue = digitsOnly.replace(/^0+(?=\d)/, "");
-
-  return normalizedValue.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return digitsOnly.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
-export function parseCurrencyToNumber(value?: string | number | null) {
-  const digitsOnly = getCurrencyDigits(value);
+export function parseMoneyInput(value?: string | number | null) {
+  const digitsOnly = onlyDigits(value);
 
-  if (!digitsOnly) return 0;
+  if (!digitsOnly) return null;
 
   return Number(digitsOnly);
 }
 
+export function getCurrencyDigits(value?: string | number | null) {
+  return onlyDigits(value);
+}
+
+export function formatCurrencyInput(value?: string | number | null) {
+  return formatMoneyInput(value);
+}
+
+export function parseCurrencyToNumber(value?: string | number | null) {
+  return parseMoneyInput(value) ?? 0;
+}
+
 export function formatCurrencyVnd(value?: number | string | null) {
   const numericValue =
-    typeof value === "number" ? value : parseCurrencyToNumber(value);
-  const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
+    typeof value === "number" ? value : parseMoneyInput(value);
+  const safeValue =
+    typeof numericValue === "number" && Number.isFinite(numericValue)
+      ? numericValue
+      : 0;
 
   return `${Math.max(Math.round(safeValue), 0).toLocaleString("vi-VN")} đ`;
 }

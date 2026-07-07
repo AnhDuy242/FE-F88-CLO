@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 
 import { DocumentText, Gallery, Refresh, Trash, User } from "iconsax-react";
 
@@ -34,7 +34,11 @@ import {
 } from "@/features/customer-identify/schemas/customer-identify.schema";
 
 import { customerIdentifyApi } from "@/features/customer-identify/api/customer-identify.api";
-import { loanApplicationDraftApi } from "@/features/loan-onboarding/api/loan-application-draft.api";
+import {
+  LOAN_APPLICATION_DRAFT_STEPS,
+  loanApplicationDraftApi,
+} from "@/features/loan-onboarding/api/loan-application-draft.api";
+import { useDraftStepAutosave } from "@/features/loan-onboarding/hooks/use-draft-step-autosave";
 
 import {
   useLoanOnboardingStore,
@@ -284,6 +288,7 @@ function CustomerIdentifyScreen() {
     setStep2PreliminaryInfo,
     setSelectedCustomer,
     clearStep1CustomerIdentify,
+    draftCode,
   } = useLoanOnboardingStore();
 
   const [frontCccd, setFrontCccd] = useState<UploadedImage | null>(null);
@@ -325,6 +330,78 @@ function CustomerIdentifyScreen() {
       phoneNumber: step1CustomerIdentify.phoneNumber || "",
       identityNumber: step1CustomerIdentify.identityNumber || "",
     },
+  });
+
+  const watchedIdentifyValues = useWatch({
+    control: form.control,
+  }) as Partial<CustomerIdentifyFormValues>;
+
+  const identifyAutosaveValues = useMemo<CustomerIdentifyFormValues>(() => {
+    return {
+      ...form.getValues(),
+      ...watchedIdentifyValues,
+    };
+  }, [form, watchedIdentifyValues]);
+
+  useEffect(() => {
+    setStep1CustomerIdentify({
+      fullName: identifyAutosaveValues.fullName || "",
+      dateOfBirth: convertDateToApiFormat(identifyAutosaveValues.dateOfBirth),
+      phoneNumber: identifyAutosaveValues.phoneNumber || "",
+      identityNumber: identifyAutosaveValues.identityNumber || "",
+      cccdNumber: identifyAutosaveValues.identityNumber || "",
+      customerCheckResult: result,
+      ocrData: pendingOcrData || step1CustomerIdentify.ocrData,
+    });
+  }, [
+    identifyAutosaveValues,
+    pendingOcrData,
+    result,
+    setStep1CustomerIdentify,
+    step1CustomerIdentify.ocrData,
+  ]);
+
+  const step1AutosavePayload = useMemo(() => {
+    const dateOfBirth = convertDateToApiFormat(
+      identifyAutosaveValues.dateOfBirth,
+    );
+
+    return {
+      fullName: identifyAutosaveValues.fullName?.trim() || "",
+      dateOfBirth,
+      phoneNumber: identifyAutosaveValues.phoneNumber?.trim() || "",
+      identityNumber: identifyAutosaveValues.identityNumber?.trim() || "",
+      cccdNumber: identifyAutosaveValues.identityNumber?.trim() || "",
+      customerId: step1CustomerIdentify.customerId || "",
+      customerCode: step1CustomerIdentify.customerCode || "",
+      customerStatus: step1CustomerIdentify.customerStatus || "",
+      lookupStatus:
+        result?.data?.lookupStatus || step1CustomerIdentify.lookupStatus || "",
+      onboardingPermission:
+        result?.data?.onboardingPermission ||
+        step1CustomerIdentify.onboardingPermission ||
+        "",
+      ocrData: pendingOcrData || step1CustomerIdentify.ocrData,
+    };
+  }, [
+    identifyAutosaveValues,
+    pendingOcrData,
+    result?.data?.lookupStatus,
+    result?.data?.onboardingPermission,
+    step1CustomerIdentify.customerCode,
+    step1CustomerIdentify.customerId,
+    step1CustomerIdentify.customerStatus,
+    step1CustomerIdentify.lookupStatus,
+    step1CustomerIdentify.ocrData,
+    step1CustomerIdentify.onboardingPermission,
+  ]);
+
+  const step1Autosave = useDraftStepAutosave({
+    draftCode: draftCode || step1CustomerIdentify.draftCode,
+    stepCode: LOAN_APPLICATION_DRAFT_STEPS.customerIdentify,
+    data: step1AutosavePayload,
+    enabled: Boolean(draftCode || step1CustomerIdentify.draftCode),
+    debounceMs: 1000,
   });
 
   useEffect(() => {
@@ -825,6 +902,13 @@ function CustomerIdentifyScreen() {
                         Upload CCCD, kiểm tra OCR và xác nhận thông tin định
                         danh khách hàng.
                       </p>
+                      {(draftCode || step1CustomerIdentify.draftCode) && (
+                        <p className="mt-2 text-xs font-medium text-[#15803d]">
+                          {step1Autosave.status === "saving" && "Dang luu nhap..."}
+                          {step1Autosave.status === "saved" && "Da luu nhap"}
+                          {step1Autosave.status === "error" && "Luu nhap that bai"}
+                        </p>
+                      )}
                     </div>
                   </div>
 

@@ -1,7 +1,14 @@
 ﻿import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import type { ChangeEvent } from "react";
-import { useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, FileText, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Eye,
+  FileText,
+  Trash2,
+  Upload,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
@@ -13,6 +20,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import { CustomerIdentifyBreadcrumb } from "@/features/customer-identify/components/CustomerIdentifyBreadcrumb";
 import { LoanOnboardingStepper } from "@/features/customer-identify/components/LoanOnboardingStepper";
@@ -31,6 +45,8 @@ import {
   type Step2PreliminaryInfoState,
   type UploadedDocumentMeta,
 } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
+import { LOAN_APPLICATION_DRAFT_STEPS } from "@/features/loan-onboarding/api/loan-application-draft.api";
+import { useDraftStepAutosave } from "@/features/loan-onboarding/hooks/use-draft-step-autosave";
 
 export const Route = createFileRoute("/loan/upload-documents")({
   component: UploadDocumentsScreen,
@@ -64,7 +80,10 @@ type UploadGroup = {
 
 type LocalDocumentFile = UploadedDocumentMeta & {
   file: File;
+  previewUrl: string;
 };
+
+type PreviewFileKind = "image" | "pdf" | "video" | "other";
 
 const uploadGroups: UploadGroup[] = [
   {
@@ -178,6 +197,35 @@ function validateUploadFile(file: File) {
   return "";
 }
 
+function getPreviewFileKind(type?: string, name?: string): PreviewFileKind {
+  const normalizedType = (type || "").toLowerCase();
+  const normalizedName = (name || "").toLowerCase();
+
+  if (normalizedType.startsWith("image/")) return "image";
+  if (normalizedType === "application/pdf" || normalizedName.endsWith(".pdf")) {
+    return "pdf";
+  }
+  if (normalizedType.startsWith("video/")) return "video";
+
+  return "other";
+}
+
+function formatFileSize(size?: number) {
+  if (!size || size <= 0) return "Khong ro dung luong";
+
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(size / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function revokePreviewUrl(file?: LocalDocumentFile | null) {
+  if (file?.previewUrl) {
+    URL.revokeObjectURL(file.previewUrl);
+  }
+}
+
 function getCompleteReferencePersons(references: ReferencePersonState[]) {
   return references.filter(
     (item) => item.fullName.trim() && item.relationshipType.trim() && item.phoneNumber.trim(),
@@ -207,6 +255,7 @@ function buildDocumentMeta(file: File, groupId: string, documentType: string, re
     type: file.type,
     uploadedAt: new Date().toISOString(),
     file,
+    previewUrl: URL.createObjectURL(file),
   };
 }
 
@@ -230,9 +279,11 @@ function hasRequiredStepData(
 function UploadDocumentsScreen() {
   const navigate = useNavigate();
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const documentsByGroupRef = useRef<Record<string, LocalDocumentFile[]>>({});
 
   const {
     applicationCode,
+    draftCode,
     selectedCustomer,
     step1CustomerIdentify,
     step2PreliminaryInfo,
@@ -247,9 +298,14 @@ function UploadDocumentsScreen() {
   } = useLoanOnboardingStore();
 
   const [documentsByGroup, setDocumentsByGroup] = useState<Record<string, LocalDocumentFile[]>>({});
+  const [previewFile, setPreviewFile] = useState<LocalDocumentFile | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitMessage, setSubmitMessage] = useState("");
+
+  useEffect(() => {
+    documentsByGroupRef.current = documentsByGroup;
+  }, [documentsByGroup]);
 
   const step3Data = customerAssetDetailData;
   const finalAssetData = step3Data?.assetData || assetData;
@@ -259,6 +315,34 @@ function UploadDocumentsScreen() {
     () => Object.values(documentsByGroup).reduce((total, items) => total + items.length, 0),
     [documentsByGroup],
   );
+
+  const uploadedDocumentMetadata = useMemo<UploadedDocumentMeta[]>(() => {
+    return Object.values(documentsByGroup)
+      .flat()
+      .map(({ file: _file, previewUrl: _previewUrl, ...meta }) => meta);
+  }, [documentsByGroup]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(documentsByGroupRef.current)
+        .flat()
+        .forEach(revokePreviewUrl);
+    };
+  }, []);
+
+  useEffect(() => {
+    setCurrentStep(CURRENT_STEP);
+  }, [setCurrentStep]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setUploadedDocuments(uploadedDocumentMetadata);
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [setUploadedDocuments, uploadedDocumentMetadata]);
 
   const selectedProductCode =
     step3Data?.selectedLoanProductCode ||
@@ -279,6 +363,31 @@ function UploadDocumentsScreen() {
       getStringFromRecord(step1CustomerIdentify, ["staffCode"]) ||
       getStringFromRecord(selectedCustomer, ["staffCode"]),
   };
+
+  const step4Autosave = useDraftStepAutosave({
+    draftCode,
+    stepCode: LOAN_APPLICATION_DRAFT_STEPS.uploadComplete,
+    data: {
+      uploadedDocuments: uploadedDocumentMetadata,
+      checklist: uploadGroups.map((group) => ({
+        groupId: group.id,
+        title: group.title,
+        uploadedCount: (documentsByGroup[group.id] || []).length,
+        maxFiles: group.maxFiles,
+        requiredSlots: (group.slots || [])
+          .filter((slot) => slot.required)
+          .map((slot) => ({
+            documentCode: slot.id,
+            label: slot.label,
+            uploaded: (documentsByGroup[group.id] || []).some(
+              (file) => file.documentType === slot.id,
+            ),
+          })),
+      })),
+    },
+    enabled: Boolean(draftCode),
+    debounceMs: 1000,
+  });
 
   const handleBack = () => {
     setCurrentStep(3);
@@ -315,6 +424,9 @@ function UploadDocumentsScreen() {
 
       setDocumentsByGroup((current) => {
         const latestItems = current[group.id] || [];
+        const replacedItems = slot
+          ? latestItems.filter((item) => item.documentType === slot.id)
+          : [];
         const baseItems = slot
           ? latestItems.filter((item) => item.documentType !== slot.id)
           : latestItems;
@@ -331,6 +443,15 @@ function UploadDocumentsScreen() {
             ),
           );
 
+        if (
+          previewFile &&
+          replacedItems.some((item) => item.id === previewFile.id)
+        ) {
+          setPreviewFile(null);
+        }
+
+        replacedItems.forEach(revokePreviewUrl);
+
         return {
           ...current,
           [group.id]: [...baseItems, ...nextItems],
@@ -343,10 +464,22 @@ function UploadDocumentsScreen() {
   };
 
   const removeDocument = (groupId: string, documentId: string) => {
-    setDocumentsByGroup((current) => ({
-      ...current,
-      [groupId]: (current[groupId] || []).filter((item) => item.id !== documentId),
-    }));
+    setDocumentsByGroup((current) => {
+      const removedDocument = (current[groupId] || []).find(
+        (item) => item.id === documentId,
+      );
+
+      revokePreviewUrl(removedDocument);
+
+      if (previewFile?.id === documentId) {
+        setPreviewFile(null);
+      }
+
+      return {
+        ...current,
+        [groupId]: (current[groupId] || []).filter((item) => item.id !== documentId),
+      };
+    });
   };
 
   const validateBeforeSubmit = () => {
@@ -551,11 +684,7 @@ function UploadDocumentsScreen() {
     setIsSubmitting(true);
 
     try {
-      const metadata = Object.values(documentsByGroup)
-        .flat()
-        .map(({ file: _file, ...meta }) => meta);
-
-      setUploadedDocuments(metadata);
+      setUploadedDocuments(uploadedDocumentMetadata);
 
       const customerCode = await ensureCustomerCode();
       const nextApplicationCode = await ensureApplicationCode(customerCode);
@@ -592,6 +721,8 @@ function UploadDocumentsScreen() {
     }
   };
 
+  const previewFileKind = getPreviewFileKind(previewFile?.type, previewFile?.name);
+
   return (
     <div className="min-h-screen bg-[#f6faf5]">
       <main className="min-h-screen">
@@ -601,6 +732,13 @@ function UploadDocumentsScreen() {
           <div className="overflow-x-auto pb-2">
             <LoanOnboardingStepper currentStep={CURRENT_STEP} />
           </div>
+          {draftCode && (
+            <p className="mb-3 text-xs font-medium text-[#15803d]">
+              {step4Autosave.status === "saving" && "Dang luu nhap..."}
+              {step4Autosave.status === "saved" && "Da luu nhap"}
+              {step4Autosave.status === "error" && "Luu nhap that bai"}
+            </p>
+          )}
 
           <div className="space-y-5">
             <SectionCard
@@ -637,75 +775,131 @@ function UploadDocumentsScreen() {
                         <div className="space-y-4">
                           {(group.slots || [{ id: `${group.id}-generic`, label: group.title }]).map((slot) => {
                             const inputKey = `${group.id}-${slot.id}`;
+                            const slotFiles = groupFiles.filter(
+                              (file) => file.documentType === slot.id,
+                            );
 
                             return (
                               <div
                                 key={slot.id}
-                                className="flex flex-col gap-3 rounded-xl border border-dashed border-[#c8d8cc] bg-white p-4 transition-colors duration-200 hover:border-[#009b3a] md:flex-row md:items-center md:justify-between"
+                                className="rounded-xl border border-dashed border-[#c8d8cc] bg-white p-4 transition-colors duration-200 hover:border-[#009b3a]"
                               >
-                                <div>
-                                  <p className="font-semibold text-[#111827]">
-                                    {slot.label} {slot.required && <span className="text-red-500">*</span>}
-                                  </p>
-                                  <p className="mt-1 text-sm text-[#64748b]">
-                                    {slot.accept?.startsWith("video")
-                                      ? "MP4, WEBM hoặc MOV. File chỉ giữ tạm trên màn này."
-                                      : "JPG, PNG, WEBP hoặc PDF. File chỉ giữ tạm trên màn này."}
-                                  </p>
-                                </div>
-
-                                <input
-                                  ref={(element) => {
-                                    fileInputRefs.current[inputKey] = element;
-                                  }}
-                                  type="file"
-                                  accept={slot.accept || "image/*,.pdf"}
-                                  multiple={!group.slots}
-                                  className="hidden"
-                                  onChange={handleFilesChange(group, slot)}
-                                />
-
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  disabled={groupFiles.length >= group.maxFiles}
-                                  onClick={() => fileInputRefs.current[inputKey]?.click()}
-                                  className="h-11 rounded-xl border-[#009b3a] px-5 font-bold text-[#009b3a] transition-colors hover:bg-[#ecfdf3] hover:text-[#009b3a]"
-                                >
-                                  <Upload className="mr-2 h-4 w-4" />
-                                  Tải lên
-                                </Button>
-                              </div>
-                            );
-                          })}
-
-                          {groupFiles.length > 0 && (
-                            <div className="space-y-2">
-                              {groupFiles.map((file) => (
-                                <div
-                                  key={file.id}
-                                  className="flex items-center justify-between rounded-lg bg-[#eef9ef] px-4 py-3 text-sm"
-                                >
-                                  <div className="flex min-w-0 items-center gap-3">
-                                    <FileText className="h-4 w-4 shrink-0 text-[#009b3a]" />
-                                    <span className="truncate font-medium text-[#111827]">{file.name}</span>
-                                    <span className="shrink-0 text-[#64748b]">
-                                      {(file.size / 1024 / 1024).toFixed(2)} MB
-                                    </span>
+                                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                  <div>
+                                    <p className="font-semibold text-[#111827]">
+                                      {slot.label} {slot.required && <span className="text-red-500">*</span>}
+                                    </p>
+                                    <p className="mt-1 text-sm text-[#64748b]">
+                                      {slot.accept?.startsWith("video")
+                                        ? "MP4, WEBM hoặc MOV. File chỉ giữ tạm trên màn này."
+                                        : "JPG, PNG, WEBP hoặc PDF. File chỉ giữ tạm trên màn này."}
+                                    </p>
                                   </div>
+
+                                  <input
+                                    ref={(element) => {
+                                      fileInputRefs.current[inputKey] = element;
+                                    }}
+                                    type="file"
+                                    accept={slot.accept || "image/*,.pdf"}
+                                    multiple={!group.slots}
+                                    className="hidden"
+                                    onChange={handleFilesChange(group, slot)}
+                                  />
 
                                   <Button
                                     type="button"
-                                    variant="ghost"
-                                    onClick={() => removeDocument(group.id, file.id)}
-                                    className="text-red-500 hover:bg-red-50 hover:text-red-600"
+                                    variant="outline"
+                                    disabled={groupFiles.length >= group.maxFiles && slotFiles.length === 0}
+                                    onClick={() => fileInputRefs.current[inputKey]?.click()}
+                                    className="h-11 rounded-xl border-[#009b3a] px-5 font-bold text-[#009b3a] transition-colors hover:bg-[#ecfdf3] hover:text-[#009b3a]"
                                   >
-                                    Xóa
+                                    <Upload className="mr-2 h-4 w-4" />
+                                    {slotFiles.length > 0 ? "Thay thế" : "Tải lên"}
                                   </Button>
                                 </div>
-                              ))}
-                            </div>
-                          )}
+
+                                {slotFiles.length > 0 && (
+                                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                    {slotFiles.map((file) => {
+                                      const kind = getPreviewFileKind(file.type, file.name);
+
+                                      return (
+                                        <div
+                                          key={file.id}
+                                          className="flex gap-3 rounded-xl border border-[#dbe5dd] bg-[#f8fbf8] p-3"
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={() => setPreviewFile(file)}
+                                            className="flex h-20 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#dbe5dd] bg-white text-[#009b3a] transition-colors hover:border-[#009b3a]"
+                                            aria-label={`Xem ${file.name}`}
+                                          >
+                                            {kind === "image" && (
+                                              <img
+                                                src={file.previewUrl}
+                                                alt={file.name}
+                                                className="h-full w-full object-cover"
+                                              />
+                                            )}
+                                            {kind === "video" && (
+                                              <video
+                                                src={file.previewUrl}
+                                                className="h-full w-full object-cover"
+                                                muted
+                                                preload="metadata"
+                                              />
+                                            )}
+                                            {kind === "pdf" && (
+                                              <div className="flex flex-col items-center gap-1 text-xs font-bold">
+                                                <FileText className="h-7 w-7" />
+                                                PDF
+                                              </div>
+                                            )}
+                                            {kind === "other" && (
+                                              <FileText className="h-7 w-7" />
+                                            )}
+                                          </button>
+
+                                          <div className="min-w-0 flex-1">
+                                            <p className="truncate text-sm font-bold text-[#111827]">
+                                              {file.name}
+                                            </p>
+                                            <p className="mt-1 text-xs text-[#64748b]">
+                                              {formatFileSize(file.size)}
+                                            </p>
+                                            <p className="mt-1 text-xs font-medium text-[#15803d]">
+                                              Đã chọn trong phiên làm việc
+                                            </p>
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                onClick={() => setPreviewFile(file)}
+                                                className="h-8 rounded-lg border-[#009b3a] px-3 text-xs font-bold text-[#009b3a] hover:bg-[#ecfdf3] hover:text-[#009b3a]"
+                                              >
+                                                <Eye className="mr-1 h-3.5 w-3.5" />
+                                                Xem chi tiết
+                                              </Button>
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                onClick={() => removeDocument(group.id, file.id)}
+                                                className="h-8 rounded-lg px-3 text-xs font-bold text-red-500 hover:bg-red-50 hover:text-red-600"
+                                              >
+                                                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                                Xóa
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </AccordionContent>
                     </AccordionItem>
@@ -776,6 +970,80 @@ function UploadDocumentsScreen() {
           </div>
         </section>
       </main>
+
+      <Dialog
+        open={Boolean(previewFile)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPreviewFile(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[92vh] w-[94vw] max-w-6xl overflow-hidden rounded-2xl border-[#dbe5dd] bg-white p-0">
+          {previewFile && (
+            <div className="flex max-h-[92vh] flex-col">
+              <DialogHeader className="border-b border-[#dbe5dd] px-6 py-4">
+                <DialogTitle className="truncate pr-8 text-lg font-bold text-[#111827]">
+                  {previewFile.name}
+                </DialogTitle>
+                <DialogDescription className="text-sm text-[#64748b]">
+                  {formatFileSize(previewFile.size)} • Đã chọn trong phiên làm việc
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-[#f6faf5] p-4">
+                {previewFileKind === "image" && (
+                  <img
+                    src={previewFile.previewUrl}
+                    alt={previewFile.name}
+                    className="max-h-[74vh] max-w-full rounded-xl object-contain shadow-sm"
+                  />
+                )}
+
+                {previewFileKind === "video" && (
+                  <video
+                    src={previewFile.previewUrl}
+                    controls
+                    className="max-h-[74vh] max-w-full rounded-xl bg-black shadow-sm"
+                  />
+                )}
+
+                {previewFileKind === "pdf" && (
+                  <object
+                    data={previewFile.previewUrl}
+                    type="application/pdf"
+                    className="h-[74vh] w-full rounded-xl border border-[#dbe5dd] bg-white"
+                  >
+                    <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-[#64748b]">
+                      <FileText className="h-12 w-12 text-[#009b3a]" />
+                      <p className="font-semibold text-[#111827]">
+                        Trình duyệt không hiển thị được PDF này.
+                      </p>
+                      <a
+                        href={previewFile.previewUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-bold text-[#009b3a] underline-offset-4 hover:underline"
+                      >
+                        Mở PDF trong tab mới
+                      </a>
+                    </div>
+                  </object>
+                )}
+
+                {previewFileKind === "other" && (
+                  <div className="flex min-h-[360px] w-full flex-col items-center justify-center gap-3 rounded-xl border border-[#dbe5dd] bg-white text-center text-[#64748b]">
+                    <FileText className="h-14 w-14 text-[#009b3a]" />
+                    <p className="font-semibold text-[#111827]">
+                      Chưa hỗ trợ xem trước loại file này.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

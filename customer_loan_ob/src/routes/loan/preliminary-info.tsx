@@ -28,7 +28,11 @@ import {
 import { assetValuationApi } from "@/features/preliminary-info/api/asset-valuation.api";
 import { referenceDataApi } from "@/features/preliminary-info/api/reference-data.api";
 import { loanProductRecommendationApi } from "@/features/preliminary-info/api/loan-product-recommendation.api";
-import { loanApplicationDraftApi } from "@/features/loan-onboarding/api/loan-application-draft.api";
+import {
+  LOAN_APPLICATION_DRAFT_STEPS,
+  loanApplicationDraftApi,
+} from "@/features/loan-onboarding/api/loan-application-draft.api";
+import { useDraftStepAutosave } from "@/features/loan-onboarding/hooks/use-draft-step-autosave";
 
 import { BottomActions } from "@/features/preliminary-info/components/BottomActions";
 import { DateOfBirthField } from "@/features/preliminary-info/components/DateOfBirthField";
@@ -609,6 +613,9 @@ function PreliminaryInfoScreen() {
       "term",
     ],
   });
+  const watchedFormValues = useWatch({
+    control: form.control,
+  }) as Partial<PreliminaryInfoFormValues>;
 
   useEffect(() => {
     const setPrefillValue = (
@@ -1350,6 +1357,55 @@ function PreliminaryInfoScreen() {
       }));
   };
 
+  const currentStep2FormValues = useMemo<PreliminaryInfoFormValues>(() => {
+    return {
+      ...form.getValues(),
+      ...watchedFormValues,
+    };
+  }, [form, watchedFormValues]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveCurrentStep2ToSession(currentStep2FormValues);
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [
+    currentStep2FormValues,
+    loanRecommendationResult,
+    selectedDeductionIds,
+    selectedProductCode,
+    selectedRecommendedProduct,
+    selectedTerm,
+  ]);
+
+  const step2AutosavePayload = useMemo(() => {
+    return buildPreliminaryDraftPayload(currentStep2FormValues);
+  }, [
+    currentStep2FormValues,
+    loanRecommendationResult,
+    marketPriceResult,
+    recommendedProducts,
+    resolvedVehicleVariant,
+    selectedDeductionIds,
+    selectedProductCode,
+    selectedRecommendedProduct,
+    totalDeductionAmount,
+    totalDeductionPercent,
+    valuationResult,
+    valueAfterDeduction,
+  ]);
+
+  const step2Autosave = useDraftStepAutosave({
+    draftCode: getCurrentDraftCode(),
+    stepCode: LOAN_APPLICATION_DRAFT_STEPS.preliminaryInfo,
+    data: step2AutosavePayload,
+    enabled: Boolean(getCurrentDraftCode()),
+    debounceMs: 1000,
+  });
+
   const buildAssetValuationPayload = (
     vehicleVariant: string,
     deductionItems = buildDeductionItems(),
@@ -1848,6 +1904,13 @@ function PreliminaryInfoScreen() {
           <div className="overflow-x-auto pb-2">
             <LoanOnboardingStepper currentStep={CURRENT_STEP} />
           </div>
+          {getCurrentDraftCode() && (
+            <p className="mb-3 text-xs font-medium text-[#15803d]">
+              {step2Autosave.status === "saving" && "Dang luu nhap..."}
+              {step2Autosave.status === "saved" && "Da luu nhap"}
+              {step2Autosave.status === "error" && "Luu nhap that bai"}
+            </p>
+          )}
 
           <Form {...form}>
             <form

@@ -39,7 +39,11 @@ import {
 import { referenceDataApi } from "@/features/preliminary-info/api/reference-data.api";
 import { assetValuationApi } from "@/features/preliminary-info/api/asset-valuation.api";
 import { loanProductRecommendationApi } from "@/features/preliminary-info/api/loan-product-recommendation.api";
-import { loanApplicationDraftApi } from "@/features/loan-onboarding/api/loan-application-draft.api";
+import {
+  LOAN_APPLICATION_DRAFT_STEPS,
+  loanApplicationDraftApi,
+} from "@/features/loan-onboarding/api/loan-application-draft.api";
+import { useDraftStepAutosave } from "@/features/loan-onboarding/hooks/use-draft-step-autosave";
 import type { DeductionItem } from "@/features/preliminary-info/types/preliminary-info.type";
 import type { LoanProductRecommendationProduct } from "@/features/preliminary-info/types/loan-product-recommendation.type";
 
@@ -444,6 +448,9 @@ function CustomerAssetDetailScreen() {
       "selectedDeductionIds",
     ],
   });
+  const watchedFormValues = useWatch({
+    control: form.control,
+  }) as Partial<CustomerAssetDetailFormValues>;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -997,6 +1004,97 @@ function CustomerAssetDetailScreen() {
     };
   };
 
+  const buildStep3DraftPayload = (
+    nextStep3Data: CustomerAssetDetailState,
+    selectedProduct?: Record<string, unknown> | null,
+  ) => {
+    return {
+      customerDetail: {
+        fullName: nextStep3Data.fullName,
+        identityNumber: nextStep3Data.identityNumber,
+        phoneNumber: nextStep3Data.phoneNumber,
+        dateOfBirth:
+          parseDisplayDateToApi(nextStep3Data.dateOfBirth) ||
+          nextStep3Data.dateOfBirth,
+        gender: nextStep3Data.gender,
+        email: nextStep3Data.email,
+        maritalStatus: nextStep3Data.maritalStatus,
+        dependentCount: nextStep3Data.dependentCount,
+        occupationCode: nextStep3Data.occupationCode,
+        workplaceName: nextStep3Data.workplaceName,
+        incomeSourceCode: nextStep3Data.incomeSourceCode,
+        monthlyIncomeAmount: Number(nextStep3Data.monthlyIncomeAmount || 0),
+        disbursementBankCode: nextStep3Data.disbursementBankCode,
+        disbursementAccountNumber: nextStep3Data.disbursementAccountNumber,
+        disbursementAccountName: nextStep3Data.disbursementAccountName,
+        permanentAddress: nextStep3Data.permanentAddress,
+        currentAddress: nextStep3Data.currentAddress,
+      },
+      referencePersons: nextStep3Data.references,
+      assetDetail: nextStep3Data.assetData,
+      preliminaryInfo: step2PreliminaryInfo,
+      valuation: storedLoanRecommendation?.valuation || null,
+      loanProductRecommendation: storedLoanRecommendation || null,
+      selectedLoanProduct: selectedProduct || selectedLoanProductData,
+      selectedLoanProductCode: selectedProductCode || "",
+    };
+  };
+
+  const currentStep3FormValues = useMemo<CustomerAssetDetailFormValues>(() => {
+    return {
+      ...form.getValues(),
+      ...watchedFormValues,
+    };
+  }, [form, watchedFormValues]);
+
+  const currentStep3Data = useMemo(() => {
+    return buildStep3Data(currentStep3FormValues);
+  }, [
+    currentStep3FormValues,
+    selectedDeductionItems,
+    selectedProductCode,
+  ]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setCustomerAssetDetailData(currentStep3Data);
+      setAssetData(currentStep3Data.assetData);
+      setReferences(currentStep3Data.references);
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [
+    currentStep3Data,
+    setAssetData,
+    setCustomerAssetDetailData,
+    setReferences,
+  ]);
+
+  const step3SelectedProduct = useMemo(() => {
+    return (
+      recommendedProducts.find(
+        (product) => product.productCode === selectedProductCode,
+      ) ||
+      selectedLoanProductData ||
+      null
+    );
+  }, [recommendedProducts, selectedLoanProductData, selectedProductCode]);
+
+  const currentDraftCode =
+    draftCode ||
+    String(step2PreliminaryInfo.draftCode || "") ||
+    String(step1Identity.draftCode || "");
+
+  const step3Autosave = useDraftStepAutosave({
+    draftCode: currentDraftCode,
+    stepCode: LOAN_APPLICATION_DRAFT_STEPS.customerAssetLoanProposal,
+    data: buildStep3DraftPayload(currentStep3Data, step3SelectedProduct),
+    enabled: Boolean(currentDraftCode),
+    debounceMs: 1000,
+  });
+
   const handleSubmit = async (values: CustomerAssetDetailFormValues) => {
     setIsSubmitting(true);
     setSubmitError("");
@@ -1032,40 +1130,7 @@ function CustomerAssetDetailScreen() {
           currentDraftCode,
           {
             status: "IN_PROGRESS",
-            payload: {
-              customerDetail: {
-                fullName: nextStep3Data.fullName,
-                identityNumber: nextStep3Data.identityNumber,
-                phoneNumber: nextStep3Data.phoneNumber,
-                dateOfBirth:
-                  parseDisplayDateToApi(nextStep3Data.dateOfBirth) ||
-                  nextStep3Data.dateOfBirth,
-                gender: nextStep3Data.gender,
-                email: nextStep3Data.email,
-                maritalStatus: nextStep3Data.maritalStatus,
-                dependentCount: nextStep3Data.dependentCount,
-                occupationCode: nextStep3Data.occupationCode,
-                workplaceName: nextStep3Data.workplaceName,
-                incomeSourceCode: nextStep3Data.incomeSourceCode,
-                monthlyIncomeAmount: Number(
-                  nextStep3Data.monthlyIncomeAmount || 0,
-                ),
-                disbursementBankCode: nextStep3Data.disbursementBankCode,
-                disbursementAccountNumber:
-                  nextStep3Data.disbursementAccountNumber,
-                disbursementAccountName:
-                  nextStep3Data.disbursementAccountName,
-                permanentAddress: nextStep3Data.permanentAddress,
-                currentAddress: nextStep3Data.currentAddress,
-              },
-              referencePersons: nextStep3Data.references,
-              assetDetail: nextStep3Data.assetData,
-              preliminaryInfo: step2PreliminaryInfo,
-              valuation: storedLoanRecommendation?.valuation || null,
-              loanProductRecommendation: storedLoanRecommendation || null,
-              selectedLoanProduct: selectedProduct || selectedLoanProductData,
-              selectedLoanProductCode: selectedProductCode || "",
-            },
+            payload: buildStep3DraftPayload(nextStep3Data, selectedProduct),
           },
         );
 
@@ -1154,6 +1219,13 @@ function CustomerAssetDetailScreen() {
           <div className="overflow-x-auto pb-2">
             <LoanOnboardingStepper currentStep={CURRENT_STEP} />
           </div>
+          {currentDraftCode && (
+            <p className="mb-3 text-xs font-medium text-[#15803d]">
+              {step3Autosave.status === "saving" && "Dang luu nhap..."}
+              {step3Autosave.status === "saved" && "Da luu nhap"}
+              {step3Autosave.status === "error" && "Luu nhap that bai"}
+            </p>
+          )}
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(handleSubmit, handleInvalidSubmit)}>

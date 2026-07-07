@@ -731,9 +731,13 @@ function CustomerIdentifyScreen() {
         );
       }
 
+      const applicationCode =
+        draftResponse.data.applicationCode || draftResponse.data.draftCode || "";
+
       setDraftInfo({
         draftId: draftResponse.data.draftId,
-        draftCode: draftResponse.data.draftCode || "",
+        draftCode: applicationCode,
+        applicationCode,
         currentStepCode: draftResponse.data.currentStepCode || "",
       });
 
@@ -760,12 +764,12 @@ function CustomerIdentifyScreen() {
         customerCode,
         customerStatus: customerSnapshot.customerStatus,
         draftId: draftResponse.data.draftId,
-        draftCode: draftResponse.data.draftCode || "",
+        draftCode: applicationCode,
         currentStepCode: draftResponse.data.currentStepCode || "",
         customerCheckResult: result,
         ocrData: pendingOcrData || step1CustomerIdentify.ocrData,
-        applicationCode: step1CustomerIdentify.applicationCode,
-        loanApplicationCode: step1CustomerIdentify.loanApplicationCode,
+        applicationCode,
+        loanApplicationCode: applicationCode,
       });
 
       setStep2PreliminaryInfo({
@@ -775,10 +779,10 @@ function CustomerIdentifyScreen() {
         dateOfBirth: customerSnapshot.dateOfBirth || formattedDateOfBirth,
         gender: customerSnapshot.gender,
         draftId: draftResponse.data.draftId,
-        draftCode: draftResponse.data.draftCode || "",
+        draftCode: applicationCode,
         currentStepCode: draftResponse.data.currentStepCode || "",
-        applicationCode: step1CustomerIdentify.applicationCode,
-        loanApplicationCode: step1CustomerIdentify.loanApplicationCode,
+        applicationCode,
+        loanApplicationCode: applicationCode,
       });
 
       setCurrentStep(2);

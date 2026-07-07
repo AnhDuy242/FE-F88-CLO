@@ -246,6 +246,7 @@ type LoanOnboardingStoreState = {
   setDraftInfo: (data: {
     draftId?: string;
     draftCode?: string;
+    applicationCode?: string;
     currentStepCode?: string;
   }) => void;
   setCurrentStep: (currentStep: number) => void;
@@ -545,23 +546,30 @@ export const useLoanOnboardingStore = create<LoanOnboardingStoreState>()(
         set((state) => {
           const draftId = data.draftId ?? state.draftId;
           const draftCode = data.draftCode ?? state.draftCode;
+          const applicationCode =
+            data.applicationCode ?? state.applicationCode ?? draftCode;
           const currentStepCode =
             data.currentStepCode ?? state.currentStepCode;
 
           return {
             draftId,
             draftCode,
+            applicationCode,
             currentStepCode,
             step1CustomerIdentify: {
               ...state.step1CustomerIdentify,
               draftId,
               draftCode,
+              applicationCode,
+              loanApplicationCode: applicationCode,
               currentStepCode,
             },
             step2PreliminaryInfo: {
               ...state.step2PreliminaryInfo,
               draftId,
               draftCode,
+              applicationCode,
+              loanApplicationCode: applicationCode,
               currentStepCode,
             },
           };

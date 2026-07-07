@@ -1040,6 +1040,7 @@ function UploadDocumentsScreen() {
                   </div>
                 )}
               </div>
+            
             </div>
           )}
         </DialogContent>

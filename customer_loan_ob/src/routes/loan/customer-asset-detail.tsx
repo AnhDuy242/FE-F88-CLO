@@ -11,6 +11,7 @@ import { onlyDigits, parseMoneyInput } from "@/lib/currency";
 import {
   normalizeDateForDisplay,
   parseDisplayDateToApi,
+  parseDateValue,
 } from "@/lib/date";
 
 import { CustomerIdentifyBreadcrumb } from "@/features/customer-identify/components/CustomerIdentifyBreadcrumb";
@@ -39,6 +40,10 @@ import {
 import { referenceDataApi } from "@/features/preliminary-info/api/reference-data.api";
 import { assetValuationApi } from "@/features/preliminary-info/api/asset-valuation.api";
 import { loanProductRecommendationApi } from "@/features/preliminary-info/api/loan-product-recommendation.api";
+import {
+  creditScoringApi,
+  type CreditScoringCalculateData,
+} from "@/features/customer-asset-detail/api/credit-scoring.api";
 import {
   LOAN_APPLICATION_DRAFT_STEPS,
   loanApplicationDraftApi,
@@ -134,6 +139,25 @@ function normalizeAssetType(value?: string): "MOTORBIKE" | "CAR" {
   }
 
   return "MOTORBIKE";
+}
+
+function calculateAge(value?: string) {
+  const birthDate = parseDateValue(value);
+
+  if (!birthDate) return 0;
+
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+
+  if (
+    monthDiff < 0 ||
+    (monthDiff === 0 && today.getDate() < birthDate.getDate())
+  ) {
+    age -= 1;
+  }
+
+  return age;
 }
 
 function getReferenceItems(response: unknown): Record<string, unknown>[] {
@@ -435,6 +459,9 @@ function CustomerAssetDetailScreen() {
     watchedVehicleColor,
     watchedVehicleVariant,
     watchedSelectedDeductionIds,
+    watchedDateOfBirth,
+    watchedDependentCount,
+    watchedMonthlyIncomeAmount,
   ] = useWatch({
     control: form.control,
     name: [
@@ -446,6 +473,9 @@ function CustomerAssetDetailScreen() {
       "vehicleColor",
       "vehicleVariant",
       "selectedDeductionIds",
+      "dateOfBirth",
+      "dependentCount",
+      "monthlyIncomeAmount",
     ],
   });
   const watchedFormValues = useWatch({
@@ -476,6 +506,9 @@ function CustomerAssetDetailScreen() {
   );
   const [finalOfferPreview, setFinalOfferPreview] =
     useState<Record<string, unknown> | null>(null);
+  const [creditScoring, setCreditScoring] =
+    useState<CreditScoringCalculateData | null>(null);
+  const [creditScoringError, setCreditScoringError] = useState("");
   const recommendationSignatureRef = useRef("");
 
   const storedPaymentMethod =
@@ -618,6 +651,56 @@ function CustomerAssetDetailScreen() {
     step2PreliminaryInfo.selectedTerm,
     step2PreliminaryInfo.term,
   ]);
+
+  useEffect(() => {
+    const monthlyIncomeAmount = parseMoneyInput(watchedMonthlyIncomeAmount) ?? 0;
+    const age = calculateAge(watchedDateOfBirth);
+    const dependentCount =
+      watchedDependentCount === "" || watchedDependentCount === undefined
+        ? 0
+        : Number(watchedDependentCount);
+
+    if (
+      monthlyIncomeAmount <= 0 ||
+      age < 18 ||
+      !Number.isInteger(dependentCount) ||
+      dependentCount < 0
+    ) {
+      setCreditScoring(null);
+      setCreditScoringError("");
+      return;
+    }
+
+    let isMounted = true;
+
+    const timer = setTimeout(() => {
+      void creditScoringApi
+        .calculate({
+          monthlyIncomeAmount,
+          age,
+          dependentCount,
+        })
+        .then((response) => {
+          if (!isMounted) return;
+
+          setCreditScoring(response.data || null);
+          setCreditScoringError("");
+        })
+        .catch((error) => {
+          console.error("Credit scoring error:", error);
+
+          if (!isMounted) return;
+
+          setCreditScoring(null);
+          setCreditScoringError("Không thể lấy dữ liệu scoring từ backend.");
+        });
+    }, 400);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [watchedDateOfBirth, watchedDependentCount, watchedMonthlyIncomeAmount]);
 
   useEffect(() => {
     const loadReferenceData = async () => {
@@ -859,6 +942,7 @@ function CustomerAssetDetailScreen() {
         loanPurpose,
         requestedLoanAmount,
         requestedTenor,
+        scoreGrade: creditScoring?.scoreGrade || "",
       });
 
       if (signature === recommendationSignatureRef.current) return;
@@ -889,6 +973,7 @@ function CustomerAssetDetailScreen() {
             requestedLoanAmount,
             adjustedAssetValue,
             scoreGrade:
+              creditScoring?.scoreGrade ||
               getStringFromUnknownObject(storedLoanRecommendation, [
                 "scoreGrade",
               ]) ||
@@ -954,6 +1039,7 @@ function CustomerAssetDetailScreen() {
     watchedVersion,
     watchedVehicleColor,
     watchedVehicleVariant,
+    creditScoring?.scoreGrade,
   ]);
 
   const buildStep3Data = (
@@ -1126,17 +1212,16 @@ function CustomerAssetDetailScreen() {
       }
 
       const response =
-        await loanApplicationDraftApi.saveCustomerAssetLoanProposal(
+        await loanApplicationDraftApi.completeCustomerAssetLoanProposal(
           currentDraftCode,
           {
-            status: "IN_PROGRESS",
             payload: buildStep3DraftPayload(nextStep3Data, selectedProduct),
           },
         );
 
       if (!response.success || !response.data?.draftCode) {
         throw new Error(
-          response.message || "Khong the luu thong tin buoc 3 len backend.",
+          response.message || "Khong the hoan tat thong tin buoc 3 len backend.",
         );
       }
 
@@ -1207,7 +1292,16 @@ function CustomerAssetDetailScreen() {
     step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0,
   );
   const customerRiskScoring = mapCustomerRiskScoring(
-    finalOfferPreview?.scoring || storedLoanRecommendation?.scoring,
+    finalOfferPreview?.scoring ||
+      (creditScoring
+        ? {
+            overallScore: creditScoring.totalScore,
+            scoreGrade: creditScoring.scoreGrade,
+            riskLevel: creditScoring.scoreGradeLabel,
+            description: creditScoring.ruleSetCode,
+          }
+        : null) ||
+      storedLoanRecommendation?.scoring,
   );
 
   return (
@@ -1633,7 +1727,9 @@ function CustomerAssetDetailScreen() {
                   requestedLoanAmount={requestedLoanAmount}
                   loanTermMonths={loanTermMonths}
                   scoring={customerRiskScoring}
-                  waitingMessage={waitingRecommendationMessage}
+                  waitingMessage={
+                    creditScoringError || waitingRecommendationMessage
+                  }
                 />
               </div>
             </form>

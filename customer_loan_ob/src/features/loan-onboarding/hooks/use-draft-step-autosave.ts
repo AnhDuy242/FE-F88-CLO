@@ -1,9 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-
-import {
-  loanApplicationDraftApi,
-  type LoanApplicationDraftStepCode,
-} from "@/features/loan-onboarding/api/loan-application-draft.api";
+import type { LoanApplicationDraftStepCode } from "@/features/loan-onboarding/api/loan-application-draft.api";
 
 export type DraftAutosaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -71,96 +66,15 @@ export function useDraftStepAutosave({
   debounceMs = 1000,
   skipInitialSave = true,
 }: UseDraftStepAutosaveParams) {
-  const [status, setStatus] = useState<DraftAutosaveStatus>("idle");
-  const [error, setError] = useState<unknown>(null);
-  const hasInitializedRef = useRef(false);
-  const lastSavedSignatureRef = useRef("");
-
-  const payload = useMemo(() => {
-    const sanitized = sanitizeDraftAutosavePayload(data);
-    return isRecord(sanitized) ? sanitized : null;
-  }, [data]);
-
-  const signature = useMemo(() => {
-    if (!payload || Object.keys(payload).length === 0) {
-      return "";
-    }
-
-    return JSON.stringify(payload);
-  }, [payload]);
-
-  useEffect(() => {
-    if (!enabled || !draftCode || !stepCode || !payload || !signature) {
-      return;
-    }
-
-    if (!hasInitializedRef.current) {
-      hasInitializedRef.current = true;
-
-      if (skipInitialSave) {
-        lastSavedSignatureRef.current = signature;
-        return;
-      }
-    }
-
-    if (signature === lastSavedSignatureRef.current) {
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      setStatus("saving");
-      setError(null);
-
-      try {
-        const response = await loanApplicationDraftApi.saveStep(
-          draftCode,
-          stepCode,
-          {
-            status: "IN_PROGRESS",
-            payload,
-          },
-        );
-
-        if (response.success === false) {
-          throw response;
-        }
-
-        lastSavedSignatureRef.current = signature;
-        setStatus("saved");
-      } catch (autosaveError) {
-        console.error("Autosave draft step error:", autosaveError);
-
-        if (
-          autosaveError &&
-          typeof autosaveError === "object" &&
-          "raw" in autosaveError
-        ) {
-          console.error(
-            "Autosave draft step response.data:",
-            (autosaveError as { raw?: unknown }).raw,
-          );
-        }
-
-        setError(autosaveError);
-        setStatus("error");
-      }
-    }, debounceMs);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [
-    debounceMs,
-    draftCode,
-    enabled,
-    payload,
-    signature,
-    skipInitialSave,
-    stepCode,
-  ]);
+  void draftCode;
+  void stepCode;
+  void data;
+  void enabled;
+  void debounceMs;
+  void skipInitialSave;
 
   return {
-    status,
-    error,
+    status: "idle" as DraftAutosaveStatus,
+    error: null,
   };
 }

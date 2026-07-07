@@ -12,8 +12,6 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
-import { parseMoneyInput } from "@/lib/currency";
-import { parseDisplayDateToApi } from "@/lib/date";
 import {
   Accordion,
   AccordionContent,
@@ -31,22 +29,18 @@ import {
 import { CustomerIdentifyBreadcrumb } from "@/features/customer-identify/components/CustomerIdentifyBreadcrumb";
 import { LoanOnboardingStepper } from "@/features/customer-identify/components/LoanOnboardingStepper";
 import { SectionCard } from "@/features/preliminary-info/components/SectionCard";
-import { customerIdentifyApi } from "@/features/customer-identify/api/customer-identify.api";
-import { preliminaryInfoApi } from "@/features/preliminary-info/api/preliminary-info.api";
-import { customerAssetDetailApi } from "@/features/customer-asset-detail/api/customer-asset-detail.api";
-import { assetValuationApi } from "@/features/preliminary-info/api/asset-valuation.api";
-import { loanProductRecommendationApi } from "@/features/preliminary-info/api/loan-product-recommendation.api";
 import {
   useLoanOnboardingStore,
-  type AssetDataState,
   type CustomerAssetDetailState,
   type ReferencePersonState,
   type Step1CustomerIdentifyState,
   type Step2PreliminaryInfoState,
   type UploadedDocumentMeta,
 } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
-import { LOAN_APPLICATION_DRAFT_STEPS } from "@/features/loan-onboarding/api/loan-application-draft.api";
-import { useDraftStepAutosave } from "@/features/loan-onboarding/hooks/use-draft-step-autosave";
+import {
+  loanApplicationDraftApi,
+  type SubmitLoanApplicationDraftDocument,
+} from "@/features/loan-onboarding/api/loan-application-draft.api";
 
 export const Route = createFileRoute("/loan/upload-documents")({
   component: UploadDocumentsScreen,
@@ -84,6 +78,27 @@ type LocalDocumentFile = UploadedDocumentMeta & {
 };
 
 type PreviewFileKind = "image" | "pdf" | "video" | "other";
+
+const SUBMIT_DOCUMENT_CODE_BY_SLOT_ID: Record<string, string> = {
+  "cccd-front": "CITIZEN_ID_FRONT",
+  "cccd-back": "CITIZEN_ID_BACK",
+  "vehicle-registration-front": "VEHICLE_REGISTRATION_FRONT",
+  "vehicle-registration-back": "VEHICLE_REGISTRATION_BACK",
+  "asset-front": "ASSET_FRONT",
+  "asset-back": "ASSET_REAR",
+  "asset-left": "ASSET_LEFT",
+  "asset-right": "ASSET_RIGHT",
+  "frame-number": "ASSET_FRAME_NUMBER",
+  "engine-number": "ASSET_ENGINE_NUMBER",
+  odo: "ASSET_ODO",
+  portrait: "CUSTOMER_PORTRAIT",
+  "portrait-with-cccd": "BORROWER_HOLDING_CITIZEN_ID_IMAGE",
+  "portrait-video": "CUSTOMER_PORTRAIT_VIDEO",
+  "income-proof": "INCOME_PROOF",
+  "residence-proof": "RESIDENCE_PROOF_DOCUMENT",
+  "signed-contract": "CUSTOMER_SIGNED_CONTRACT",
+  "reference-verification": "REFERENCE_VERIFICATION_FORM",
+};
 
 const uploadGroups: UploadGroup[] = [
   {
@@ -160,31 +175,6 @@ function getStringFromRecord(source: unknown, keys: string[]) {
   return "";
 }
 
-function normalizeAssetType(value?: string): "MOTORBIKE" | "CAR" {
-  const normalizedValue = (value || "").trim().toUpperCase();
-
-  if (normalizedValue === "CAR" || normalizedValue === "OTO") return "CAR";
-
-  return "MOTORBIKE";
-}
-
-function normalizeGender(value?: string) {
-  const normalizedValue = (value || "").trim().toUpperCase();
-
-  if (normalizedValue === "NAM" || normalizedValue === "MALE") return "MALE";
-  if (normalizedValue === "NU" || normalizedValue === "NỮ" || normalizedValue === "FEMALE") {
-    return "FEMALE";
-  }
-
-  return normalizedValue;
-}
-
-function normalizeApiDate(value?: string) {
-  const trimmedValue = (value || "").trim();
-
-  return parseDisplayDateToApi(trimmedValue) || trimmedValue;
-}
-
 function validateUploadFile(file: File) {
   if (!ALLOWED_UPLOAD_MIME_TYPES.has(file.type)) {
     return "File upload chỉ hỗ trợ JPG, PNG, WEBP, PDF hoặc video MP4/WEBM/MOV.";
@@ -259,6 +249,22 @@ function buildDocumentMeta(file: File, groupId: string, documentType: string, re
   };
 }
 
+function toSubmitDocumentCode(documentType: string) {
+  return SUBMIT_DOCUMENT_CODE_BY_SLOT_ID[documentType] || documentType.trim().toUpperCase();
+}
+
+function buildSubmitDocuments(
+  documentsByGroup: Record<string, LocalDocumentFile[]>,
+): SubmitLoanApplicationDraftDocument[] {
+  return Object.values(documentsByGroup)
+    .flat()
+    .map((document) => ({
+      documentTypeCode: toSubmitDocumentCode(document.documentType),
+      fileUrl: document.previewUrl,
+      fileName: document.name,
+    }));
+}
+
 function hasRequiredStepData(
   step1: Step1CustomerIdentifyState,
   step2: Step2PreliminaryInfoState,
@@ -282,9 +288,7 @@ function UploadDocumentsScreen() {
   const documentsByGroupRef = useRef<Record<string, LocalDocumentFile[]>>({});
 
   const {
-    applicationCode,
     draftCode,
-    selectedCustomer,
     step1CustomerIdentify,
     step2PreliminaryInfo,
     customerAssetDetailData,
@@ -310,11 +314,6 @@ function UploadDocumentsScreen() {
   const step3Data = customerAssetDetailData;
   const finalAssetData = step3Data?.assetData || assetData;
   const finalReferences = step3Data?.references?.length ? step3Data.references : references;
-
-  const totalUploadedDocuments = useMemo(
-    () => Object.values(documentsByGroup).reduce((total, items) => total + items.length, 0),
-    [documentsByGroup],
-  );
 
   const uploadedDocumentMetadata = useMemo<UploadedDocumentMeta[]>(() => {
     return Object.values(documentsByGroup)
@@ -348,46 +347,6 @@ function UploadDocumentsScreen() {
     step3Data?.selectedLoanProductCode ||
     getStringFromRecord(selectedLoanProduct, ["productCode"]) ||
     getStringFromRecord(loanRecommendation, ["recommendedProductCode"]);
-
-  const loanApplicationContext = {
-    applicationChannel:
-      getStringFromRecord(step2PreliminaryInfo, ["applicationChannel"]) ||
-      getStringFromRecord(step1CustomerIdentify, ["applicationChannel"]) ||
-      getStringFromRecord(selectedCustomer, ["applicationChannel"]),
-    branchCode:
-      getStringFromRecord(step2PreliminaryInfo, ["branchCode"]) ||
-      getStringFromRecord(step1CustomerIdentify, ["branchCode"]) ||
-      getStringFromRecord(selectedCustomer, ["branchCode"]),
-    staffCode:
-      getStringFromRecord(step2PreliminaryInfo, ["staffCode"]) ||
-      getStringFromRecord(step1CustomerIdentify, ["staffCode"]) ||
-      getStringFromRecord(selectedCustomer, ["staffCode"]),
-  };
-
-  const step4Autosave = useDraftStepAutosave({
-    draftCode,
-    stepCode: LOAN_APPLICATION_DRAFT_STEPS.uploadComplete,
-    data: {
-      uploadedDocuments: uploadedDocumentMetadata,
-      checklist: uploadGroups.map((group) => ({
-        groupId: group.id,
-        title: group.title,
-        uploadedCount: (documentsByGroup[group.id] || []).length,
-        maxFiles: group.maxFiles,
-        requiredSlots: (group.slots || [])
-          .filter((slot) => slot.required)
-          .map((slot) => ({
-            documentCode: slot.id,
-            label: slot.label,
-            uploaded: (documentsByGroup[group.id] || []).some(
-              (file) => file.documentType === slot.id,
-            ),
-          })),
-      })),
-    },
-    enabled: Boolean(draftCode),
-    debounceMs: 1000,
-  });
 
   const handleBack = () => {
     setCurrentStep(3);
@@ -493,15 +452,8 @@ function UploadDocumentsScreen() {
       errors.push("Cần tối thiểu 3 người tham chiếu hợp lệ.");
     }
 
-    if (
-      !applicationCode &&
-      (!loanApplicationContext.applicationChannel ||
-        !loanApplicationContext.branchCode ||
-        !loanApplicationContext.staffCode)
-    ) {
-      errors.push(
-        "Thiếu kênh tiếp nhận, mã chi nhánh hoặc mã nhân viên để tạo hồ sơ vay nháp.",
-      );
+    if (!draftCode) {
+      errors.push("Thiếu mã hồ sơ vay nháp. Vui lòng quay lại bước 1 để tạo hồ sơ.");
     }
 
     if (!finalAssetData?.vehicleVariant) {
@@ -528,135 +480,6 @@ function UploadDocumentsScreen() {
     }
 
     return errors;
-  };
-
-  const ensureCustomerCode = async () => {
-    const existingCustomerCode =
-      getStringFromRecord(selectedCustomer, ["customerCode"]) ||
-      step1CustomerIdentify.customerCode;
-
-    if (existingCustomerCode) return existingCustomerCode;
-
-    const response = await customerIdentifyApi.createCustomer({
-      fullName: step1CustomerIdentify.fullName,
-      identifierNumber: step1CustomerIdentify.identityNumber,
-      phoneNumber: step1CustomerIdentify.phoneNumber,
-      dateOfBirth: normalizeApiDate(step1CustomerIdentify.dateOfBirth),
-    });
-
-    if (!response.success || !response.data?.customerCode) {
-      throw new Error(response.message || "Không thể tạo khách hàng trước khi gửi phê duyệt.");
-    }
-
-    return response.data.customerCode;
-  };
-
-  const ensureApplicationCode = async (customerCode: string) => {
-    if (applicationCode) return applicationCode;
-
-    const response = await preliminaryInfoApi.createLoanApplicationDraft({
-      customerCode,
-      ...loanApplicationContext,
-    });
-
-    if (!response.success || !response.data?.applicationCode) {
-      throw new Error(response.message || "Không thể tạo hồ sơ vay nháp.");
-    }
-
-    setApplicationCode(response.data.applicationCode);
-
-    return response.data.applicationCode;
-  };
-
-  const saveFinalApplicationData = async (nextApplicationCode: string, nextAssetData: AssetDataState) => {
-    await preliminaryInfoApi.saveDraft(nextApplicationCode, {
-      applicantSnapshot: {
-        fullName: step2PreliminaryInfo.fullName || step1CustomerIdentify.fullName,
-        dateOfBirth: normalizeApiDate(step2PreliminaryInfo.dateOfBirth || step1CustomerIdentify.dateOfBirth),
-        gender: normalizeGender(step2PreliminaryInfo.gender || step1CustomerIdentify.gender),
-        identifierNumber: step2PreliminaryInfo.identityNumber || step1CustomerIdentify.identityNumber,
-        phoneNumber: step2PreliminaryInfo.phoneNumber || step1CustomerIdentify.phoneNumber,
-        occupation: step2PreliminaryInfo.job,
-        monthlyIncome: parseMoneyInput(step2PreliminaryInfo.monthlyIncome) ?? 0,
-      },
-      loanRequest: {
-        loanPurpose: step2PreliminaryInfo.loanPurpose,
-        requestedAmount: parseMoneyInput(step2PreliminaryInfo.desiredLoanAmount) ?? 0,
-        requestedTenure: Number(step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0),
-      },
-    });
-
-    if (!step3Data) {
-      throw new Error("Thiếu dữ liệu bước 3.");
-    }
-
-    await customerAssetDetailApi.saveCustomerDetail(nextApplicationCode, {
-      gender: normalizeGender(step3Data.gender),
-      email: step3Data.email || "",
-      maritalStatus: step3Data.maritalStatus,
-      occupationCode: step3Data.occupationCode,
-      incomeSourceCode: step3Data.incomeSourceCode,
-      monthlyIncomeAmount: parseMoneyInput(step3Data.monthlyIncomeAmount) ?? 0,
-      disbursementBankCode: step3Data.disbursementBankCode,
-      disbursementAccountNumber: step3Data.disbursementAccountNumber,
-      disbursementAccountName: step3Data.disbursementAccountName,
-      workplaceName: step3Data.workplaceName || "",
-      permanentAddress: step3Data.permanentAddress,
-      currentAddress: step3Data.currentAddress,
-    });
-
-    await customerAssetDetailApi.saveReferencePersons(nextApplicationCode, {
-      referencePersons: getCompleteReferencePersons(finalReferences).map((item) => ({
-        fullName: item.fullName,
-        phoneNumber: item.phoneNumber,
-        relationshipType: item.relationshipType,
-        address: item.address || "",
-        note: item.note || "",
-      })),
-    });
-
-    await customerAssetDetailApi.saveAssetSnapshot(nextApplicationCode, {
-      assetType: normalizeAssetType(nextAssetData.assetType),
-      licensePlate: nextAssetData.licensePlate,
-      brand: nextAssetData.brand,
-      model: nextAssetData.model,
-      vehicleVariant: nextAssetData.vehicleVariant,
-      manufactureYear: Number(nextAssetData.manufactureYear),
-      vehicleColor: nextAssetData.vehicleColor,
-    });
-
-    await customerAssetDetailApi.saveAssetLegalInfo(nextApplicationCode, {
-      frameNumber: nextAssetData.frameNumber,
-      engineNumber: nextAssetData.engineNumber,
-    });
-
-    if (nextAssetData.registrationNumber && nextAssetData.registrationIssueDate) {
-      await customerAssetDetailApi.saveVehicleRegistration(nextApplicationCode, {
-        registrationNumber: nextAssetData.registrationNumber,
-        registrationIssueDate: normalizeApiDate(nextAssetData.registrationIssueDate),
-      });
-    }
-
-    await assetValuationApi.save(nextApplicationCode, {
-      assetSnapshot: {
-        assetType: normalizeAssetType(nextAssetData.assetType),
-        brand: nextAssetData.brand,
-        model: nextAssetData.model,
-        vehicleVariant: nextAssetData.vehicleVariant,
-        manufactureYear: Number(nextAssetData.manufactureYear),
-        vehicleColor: nextAssetData.vehicleColor,
-      },
-      deductionItems: nextAssetData.selectedDeductionItems.map((item) => ({
-        type: item.type,
-        rate: item.rate,
-      })),
-    });
-
-    await loanProductRecommendationApi.selectFinalOffer(nextApplicationCode, {
-      productCode: selectedProductCode,
-      requestedAmount: parseMoneyInput(step2PreliminaryInfo.desiredLoanAmount) ?? 0,
-      loanTermMonths: Number(step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0),
-    });
   };
 
   const handleSubmitForApproval = async () => {
@@ -686,22 +509,19 @@ function UploadDocumentsScreen() {
     try {
       setUploadedDocuments(uploadedDocumentMetadata);
 
-      const customerCode = await ensureCustomerCode();
-      const nextApplicationCode = await ensureApplicationCode(customerCode);
-
-      await saveFinalApplicationData(nextApplicationCode, finalAssetData);
-
-      const response = await customerAssetDetailApi.submitForApproval(nextApplicationCode);
+      const response = await loanApplicationDraftApi.submit(draftCode, {
+        documents: buildSubmitDocuments(documentsByGroup),
+      });
 
       if (response.success === false) {
         throw new Error(response.message || "Gửi hồ sơ phê duyệt thất bại.");
       }
 
+      if (response.data?.applicationCode) {
+        setApplicationCode(response.data.applicationCode);
+      }
       setCurrentStep(4);
-      const message =
-        totalUploadedDocuments > 0
-          ? "Hồ sơ đã gửi phê duyệt. BE chưa có API upload chứng từ nên file đã chọn chưa được gửi lên server."
-          : response.data?.message || response.message || "Hồ sơ đã gửi phê duyệt.";
+      const message = response.data?.message || response.message || "Hồ sơ đã gửi phê duyệt.";
 
       setSubmitMessage(message);
       toast.success(message);
@@ -732,14 +552,6 @@ function UploadDocumentsScreen() {
           <div className="overflow-x-auto pb-2">
             <LoanOnboardingStepper currentStep={CURRENT_STEP} />
           </div>
-          {draftCode && (
-            <p className="mb-3 text-xs font-medium text-[#15803d]">
-              {step4Autosave.status === "saving" && "Dang luu nhap..."}
-              {step4Autosave.status === "saved" && "Da luu nhap"}
-              {step4Autosave.status === "error" && "Luu nhap that bai"}
-            </p>
-          )}
-
           <div className="space-y-5">
             <SectionCard
               title="Upload chứng từ"
@@ -1047,4 +859,3 @@ function UploadDocumentsScreen() {
     </div>
   );
 }
-

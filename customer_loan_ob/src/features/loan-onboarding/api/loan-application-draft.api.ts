@@ -127,6 +127,26 @@ export type LoanApplicationDraftStepPayloadResponse =
 export type SaveLoanApplicationDraftStepResponse =
   ApiResponse<SaveLoanApplicationDraftStepData>;
 
+export type SubmitLoanApplicationDraftDocument = {
+  documentTypeCode: string;
+  fileUrl: string;
+  fileName: string;
+};
+
+export type SubmitLoanApplicationDraftPayload = {
+  documents: SubmitLoanApplicationDraftDocument[];
+};
+
+export type SubmitLoanApplicationDraftData = {
+  draftCode?: string;
+  status?: string;
+  applicationCode?: string | null;
+  message?: string;
+};
+
+export type SubmitLoanApplicationDraftResponse =
+  ApiResponse<SubmitLoanApplicationDraftData>;
+
 export const loanApplicationDraftApi = {
   create: async (
     payload: CreateLoanApplicationDraftPayload,
@@ -223,5 +243,27 @@ export const loanApplicationDraftApi = {
       LOAN_APPLICATION_DRAFT_STEPS.customerAssetLoanProposal,
       payload,
     );
+  },
+
+  completeCustomerAssetLoanProposal: async (
+    draftCode: string,
+    payload: CompleteLoanApplicationDraftStepPayload,
+  ): Promise<SaveLoanApplicationDraftStepResponse> => {
+    return loanApplicationDraftApi.completeStep(
+      draftCode,
+      LOAN_APPLICATION_DRAFT_STEPS.customerAssetLoanProposal,
+      payload,
+    );
+  },
+
+  submit: async (
+    draftCode: string,
+    payload: SubmitLoanApplicationDraftPayload,
+  ): Promise<SubmitLoanApplicationDraftResponse> => {
+    return axiosClient.post<
+      SubmitLoanApplicationDraftResponse,
+      SubmitLoanApplicationDraftResponse,
+      SubmitLoanApplicationDraftPayload
+    >(API_ENDPOINTS.loanApplicationDraft.submit(draftCode), payload);
   },
 };

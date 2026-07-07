@@ -33,6 +33,7 @@ export const API_ENDPOINTS = {
       `/loan-application-drafts/${draftCode}/steps/${stepCode}`,
     completeStep: (draftCode: string, stepCode: string) =>
       `/loan-application-drafts/${draftCode}/steps/${stepCode}/complete`,
+    submit: (draftCode: string) => `/loan-application-drafts/${draftCode}/submit`,
   },
 
   preliminaryInfo: {
@@ -47,6 +48,10 @@ export const API_ENDPOINTS = {
     preview: "/asset-valuations/preview",
     save: (applicationCode: string) =>
       `/loan-applications/${applicationCode}/asset-valuations`,
+  },
+
+  creditScoring: {
+    calculate: "/credit-scoring/calculate",
   },
 
   loanProductRecommendation: {

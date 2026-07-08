@@ -305,9 +305,6 @@ function CustomerAssetDetailScreen() {
   const selectedLoanProduct = useLoanOnboardingStore(
     (state) => state.selectedLoanProduct,
   );
-  const applicationCode = useLoanOnboardingStore(
-    (state) => state.applicationCode,
-  );
   const draftCode = useLoanOnboardingStore((state) => state.draftCode);
   const setDraftInfo = useLoanOnboardingStore((state) => state.setDraftInfo);
   const setCurrentStep = useLoanOnboardingStore((state) => state.setCurrentStep);
@@ -504,51 +501,11 @@ function CustomerAssetDetailScreen() {
   const [selectedProductCode, setSelectedProductCode] = useState(
     form.getValues("selectedLoanProductCode") || recommendedProductCode,
   );
-  const [finalOfferPreview, setFinalOfferPreview] =
-    useState<Record<string, unknown> | null>(null);
   const [creditScoring, setCreditScoring] =
     useState<CreditScoringCalculateData | null>(null);
   const [creditScoringError, setCreditScoringError] = useState("");
   const recommendationSignatureRef = useRef("");
 
-  const storedPaymentMethod =
-    getStringFromUnknownObject(step2PreliminaryInfo, [
-      "paymentMethod",
-      "paymentMethodCode",
-      "repaymentMethod",
-    ]) ||
-    getStringFromUnknownObject(selectedLoanProductData, ["paymentMethod"]) ||
-    getStringFromUnknownObject(storedLoanRecommendation, ["paymentMethod"]);
-  const storedMonthlyPaymentDay =
-    getNumberFromUnknownObject(step2PreliminaryInfo, ["monthlyPaymentDay"]) ||
-    getNumberFromUnknownObject(selectedLoanProductData, ["monthlyPaymentDay"]) ||
-    getNumberFromUnknownObject(storedLoanRecommendation, ["monthlyPaymentDay"]);
-  const storedProcessingBranch =
-    getStringFromUnknownObject(step2PreliminaryInfo, [
-      "processingBranch",
-      "branchName",
-      "branchCode",
-    ]) ||
-    getStringFromUnknownObject(selectedCustomerData, [
-      "processingBranch",
-      "branchName",
-      "branchCode",
-    ]) ||
-    getStringFromUnknownObject(step1Identity, [
-      "processingBranch",
-      "branchName",
-      "branchCode",
-    ]) ||
-    getStringFromUnknownObject(selectedLoanProductData, [
-      "processingBranch",
-      "branchName",
-      "branchCode",
-    ]) ||
-    getStringFromUnknownObject(storedLoanRecommendation, [
-      "processingBranch",
-      "branchName",
-      "branchCode",
-    ]);
   const [genderOptions, setGenderOptions] = useState<ReferenceOption[]>([]);
   const [maritalStatusOptions, setMaritalStatusOptions] = useState<
     ReferenceOption[]
@@ -594,63 +551,6 @@ function CustomerAssetDetailScreen() {
       shouldDirty: false,
     });
   }, [form, selectedProductCode]);
-
-  useEffect(() => {
-    const requestedAmount = parseMoneyInput(
-      step2PreliminaryInfo.desiredLoanAmount,
-    ) ?? 0;
-    const loanTermMonths = Number(
-      step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0,
-    );
-
-    if (!applicationCode || requestedAmount <= 0 || loanTermMonths <= 0) {
-      setFinalOfferPreview(null);
-      return;
-    }
-
-    let isMounted = true;
-
-    const loadFinalOfferPreview = async () => {
-      try {
-        const response = await loanProductRecommendationApi.previewFinalOffer(
-          applicationCode,
-          {
-            requestedAmount,
-            loanTermMonths,
-            paymentMethod: storedPaymentMethod || undefined,
-            monthlyPaymentDay:
-              storedMonthlyPaymentDay > 0 ? storedMonthlyPaymentDay : undefined,
-            processingBranch: storedProcessingBranch || undefined,
-            limit: 3,
-          },
-        );
-
-        if (!isMounted) return;
-
-        setFinalOfferPreview((response.data || response) as Record<string, unknown>);
-      } catch (error) {
-        console.error("Final offer preview error:", error);
-
-        if (!isMounted) return;
-
-        setFinalOfferPreview(null);
-      }
-    };
-
-    void loadFinalOfferPreview();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [
-    applicationCode,
-    step2PreliminaryInfo.desiredLoanAmount,
-    storedMonthlyPaymentDay,
-    storedPaymentMethod,
-    storedProcessingBranch,
-    step2PreliminaryInfo.selectedTerm,
-    step2PreliminaryInfo.term,
-  ]);
 
   useEffect(() => {
     const monthlyIncomeAmount = parseMoneyInput(watchedMonthlyIncomeAmount) ?? 0;
@@ -1305,8 +1205,7 @@ function CustomerAssetDetailScreen() {
     step2PreliminaryInfo.term || step2PreliminaryInfo.selectedTerm || 0,
   );
   const customerRiskScoring = mapCustomerRiskScoring(
-    finalOfferPreview?.scoring ||
-      (creditScoring
+    (creditScoring
         ? {
             overallScore: creditScoring.totalScore,
             scoreGrade: creditScoring.scoreGrade,

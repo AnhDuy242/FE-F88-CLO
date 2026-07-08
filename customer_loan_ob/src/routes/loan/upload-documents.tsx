@@ -39,7 +39,10 @@ import {
   type UploadedDocumentMeta,
 } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
 import {
+  LOAN_APPLICATION_DRAFT_STEPS,
   loanApplicationDraftApi,
+  type SaveLoanApplicationDraftStepData,
+  type UploadedLoanApplicationDocument,
   type UploadLoanApplicationDraftDocument,
 } from "@/features/loan-onboarding/api/loan-application-draft.api";
 
@@ -78,6 +81,13 @@ type LocalDocumentFile = UploadedDocumentMeta & {
   previewUrl: string;
 };
 
+type RemoteDocumentFile = UploadedDocumentMeta & {
+  previewUrl: string;
+  remote: true;
+};
+
+type PreviewDocumentFile = LocalDocumentFile | RemoteDocumentFile;
+
 type PreviewFileKind = "image" | "pdf" | "video" | "other";
 
 const SUBMIT_DOCUMENT_CODE_BY_SLOT_ID: Record<string, string> = {
@@ -100,6 +110,13 @@ const SUBMIT_DOCUMENT_CODE_BY_SLOT_ID: Record<string, string> = {
   "signed-contract": "CUSTOMER_SIGNED_CONTRACT",
   "reference-verification": "REFERENCE_VERIFICATION_FORM",
 };
+
+const SLOT_ID_BY_SUBMIT_DOCUMENT_CODE = Object.fromEntries(
+  Object.entries(SUBMIT_DOCUMENT_CODE_BY_SLOT_ID).map(([slotId, documentTypeCode]) => [
+    documentTypeCode,
+    slotId,
+  ]),
+);
 
 const uploadGroups: UploadGroup[] = [
   {
@@ -206,10 +223,25 @@ function getPreviewFileKind(type?: string, name?: string): PreviewFileKind {
   const normalizedName = (name || "").toLowerCase();
 
   if (normalizedType.startsWith("image/")) return "image";
+  if (
+    normalizedName.endsWith(".jpg") ||
+    normalizedName.endsWith(".jpeg") ||
+    normalizedName.endsWith(".png") ||
+    normalizedName.endsWith(".webp")
+  ) {
+    return "image";
+  }
   if (normalizedType === "application/pdf" || normalizedName.endsWith(".pdf")) {
     return "pdf";
   }
-  if (normalizedType.startsWith("video/")) return "video";
+  if (
+    normalizedType.startsWith("video/") ||
+    normalizedName.endsWith(".mp4") ||
+    normalizedName.endsWith(".webm") ||
+    normalizedName.endsWith(".mov")
+  ) {
+    return "video";
+  }
 
   return "other";
 }
@@ -225,7 +257,7 @@ function formatFileSize(size?: number) {
 }
 
 function revokePreviewUrl(file?: LocalDocumentFile | null) {
-  if (file?.previewUrl) {
+  if (file?.previewUrl && file.previewUrl.startsWith("blob:")) {
     URL.revokeObjectURL(file.previewUrl);
   }
 }
@@ -265,6 +297,45 @@ function buildDocumentMeta(file: File, groupId: string, documentType: string, re
 
 function toSubmitDocumentCode(documentType: string) {
   return SUBMIT_DOCUMENT_CODE_BY_SLOT_ID[documentType] || documentType.trim().toUpperCase();
+}
+
+function toUploadSlotId(documentTypeCode: string) {
+  return SLOT_ID_BY_SUBMIT_DOCUMENT_CODE[documentTypeCode] || documentTypeCode;
+}
+
+function inferMimeTypeFromName(fileName?: string) {
+  const normalizedName = (fileName || "").toLowerCase();
+
+  if (normalizedName.endsWith(".jpg") || normalizedName.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+  if (normalizedName.endsWith(".png")) return "image/png";
+  if (normalizedName.endsWith(".webp")) return "image/webp";
+  if (normalizedName.endsWith(".pdf")) return "application/pdf";
+  if (normalizedName.endsWith(".mp4")) return "video/mp4";
+  if (normalizedName.endsWith(".webm")) return "video/webm";
+  if (normalizedName.endsWith(".mov")) return "video/quicktime";
+
+  return "";
+}
+
+function toRemotePreviewFile(
+  document: UploadedLoanApplicationDocument,
+  groupId: string,
+  slot: UploadSlot,
+): RemoteDocumentFile {
+  return {
+    id: document.documentId || `${groupId}-${slot.id}-${document.fileName}`,
+    groupId,
+    documentType: slot.id,
+    required: Boolean(slot.required),
+    name: document.fileName,
+    size: 0,
+    type: inferMimeTypeFromName(document.fileName),
+    uploadedAt: document.uploadedAt || "",
+    previewUrl: document.fileUrl,
+    remote: true,
+  };
 }
 
 function buildSubmitDocuments(
@@ -316,9 +387,17 @@ function UploadDocumentsScreen() {
   } = useLoanOnboardingStore();
 
   const [documentsByGroup, setDocumentsByGroup] = useState<Record<string, LocalDocumentFile[]>>({});
-  const [previewFile, setPreviewFile] = useState<LocalDocumentFile | null>(null);
+  const [previewFile, setPreviewFile] = useState<PreviewDocumentFile | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [isCompletedDialogOpen, setIsCompletedDialogOpen] = useState(false);
+  const [isApplicationCompleted, setIsApplicationCompleted] = useState(false);
+  const [completedDocuments, setCompletedDocuments] = useState<
+    UploadedLoanApplicationDocument[]
+  >([]);
+  const [savedDocumentsBySlot, setSavedDocumentsBySlot] = useState<
+    Record<string, UploadedLoanApplicationDocument>
+  >({});
   const [missingDocumentIds, setMissingDocumentIds] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState("");
   const [submitMessage, setSubmitMessage] = useState("");
@@ -359,6 +438,50 @@ function UploadDocumentsScreen() {
     };
   }, [setUploadedDocuments, uploadedDocumentMetadata]);
 
+  useEffect(() => {
+    if (!draftCode) return;
+
+    let isActive = true;
+
+    async function hydrateUploadedDocuments() {
+      try {
+        const [overviewResponse, documentResponse] = await Promise.all([
+          loanApplicationDraftApi.getOverview(draftCode),
+          loanApplicationDraftApi.listDocuments(draftCode),
+        ]);
+
+        if (!isActive) return;
+
+        const serverDocuments = documentResponse.data?.documents || [];
+        const nextDocumentsBySlot: Record<string, UploadedLoanApplicationDocument> = {};
+
+        serverDocuments.forEach((document) => {
+          const slotId = toUploadSlotId(document.documentTypeCode);
+
+          if (!nextDocumentsBySlot[slotId]) {
+            nextDocumentsBySlot[slotId] = document;
+          }
+        });
+
+        setSavedDocumentsBySlot(nextDocumentsBySlot);
+        setCompletedDocuments(serverDocuments);
+
+        if (overviewResponse.data?.applicationState === "APP_COMPLETED") {
+          setIsApplicationCompleted(true);
+          setSubmitMessage("Hồ sơ đã hoàn tất và đang ở trạng thái APP_COMPLETED.");
+        }
+      } catch (error) {
+        console.warn("Hydrate uploaded documents error:", error);
+      }
+    }
+
+    void hydrateUploadedDocuments();
+
+    return () => {
+      isActive = false;
+    };
+  }, [draftCode]);
+
   const selectedProductCode =
     step3Data?.selectedLoanProductCode ||
     getStringFromRecord(selectedLoanProduct, ["productCode"]) ||
@@ -368,11 +491,13 @@ function UploadDocumentsScreen() {
     return getAllUploadSlots().filter(({ group, slot }) => {
       if (!slot.required) return false;
 
-      return !(documentsByGroup[group.id] || []).some(
+      const hasLocalFile = (documentsByGroup[group.id] || []).some(
         (file) => file.documentType === slot.id,
       );
+
+      return !hasLocalFile && !savedDocumentsBySlot[slot.id];
     });
-  }, [documentsByGroup]);
+  }, [documentsByGroup, savedDocumentsBySlot]);
 
   const isUploadComplete = missingRequiredUploadSlots.length === 0;
 
@@ -452,7 +577,15 @@ function UploadDocumentsScreen() {
         setMissingDocumentIds((current) =>
           current.filter((documentId) => documentId !== slot.id),
         );
+        setSavedDocumentsBySlot((current) => {
+          const next = { ...current };
+
+          delete next[slot.id];
+          return next;
+        });
       }
+      setIsApplicationCompleted(false);
+      setCompletedDocuments([]);
       setSubmitError("");
       setSubmitMessage("");
       toast.success("Đã tải chứng từ.");
@@ -480,32 +613,151 @@ function UploadDocumentsScreen() {
     });
 
     setSubmitMessage("");
+    setIsApplicationCompleted(false);
+    setCompletedDocuments([]);
+    setSavedDocumentsBySlot((current) => {
+      const removedDocument = (documentsByGroup[groupId] || []).find(
+        (item) => item.id === documentId,
+      );
+
+      if (!removedDocument) return current;
+
+      const next = { ...current };
+
+      delete next[removedDocument.documentType];
+      return next;
+    });
   };
 
-  const validateRequiredDocuments = () => {
-    const missingLabels = missingRequiredUploadSlots.map(({ slot }) => slot.label);
-    const missingIds = missingRequiredUploadSlots.map(({ slot }) => slot.id);
+  const removeSavedDocument = async (
+    slotId: string,
+    document: UploadedLoanApplicationDocument,
+  ) => {
+    if (!document.documentId) {
+      setSavedDocumentsBySlot((current) => {
+        const next = { ...current };
 
-    setMissingDocumentIds(missingIds);
+        delete next[slotId];
+        return next;
+      });
+      return;
+    }
 
-    if (missingLabels.length > 0) {
-      const message = getMissingDocumentsMessage(missingLabels);
+    setIsSubmitting(true);
+    setSubmitError("");
+    setSubmitMessage("");
+
+    try {
+      const response = await loanApplicationDraftApi.deleteDocument(
+        draftCode,
+        document.documentId,
+      );
+
+      if (response.success === false) {
+        throw new Error(response.message || "Xóa chứng từ thất bại.");
+      }
+
+      setSavedDocumentsBySlot((current) => {
+        const next = { ...current };
+
+        delete next[slotId];
+        return next;
+      });
+      setCompletedDocuments((current) =>
+        current.filter((item) => item.documentId !== document.documentId),
+      );
+      if (previewFile?.id === document.documentId) {
+        setPreviewFile(null);
+      }
+      setMissingDocumentIds((current) =>
+        slotId === "cccd-front" || slotId === "cccd-back"
+          ? Array.from(new Set([...current, slotId]))
+          : current,
+      );
+      setIsApplicationCompleted(false);
+      toast.success("Đã xóa chứng từ.");
+    } catch (error) {
+      const message = getApiErrorMessage(error);
 
       setSubmitError(message);
       toast.error(message);
-      return false;
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setSubmitError("");
-    return true;
   };
 
-  const handleCompleteDocuments = () => {
+  const handleCompleteDocuments = async () => {
     setSubmitMessage("");
+    setSubmitError("");
 
-    if (!validateRequiredDocuments()) return;
+    const validationErrors = validateBeforeSubmit();
 
-    setIsConfirmOpen(true);
+    if (validationErrors.length > 0) {
+      const message = validationErrors.join(" ");
+
+      setMissingDocumentIds(missingRequiredUploadSlots.map(({ slot }) => slot.id));
+      setSubmitError(message);
+      toast.error(message);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      setUploadedDocuments(uploadedDocumentMetadata);
+      const localDocuments = buildSubmitDocuments(documentsByGroup);
+      let stepData: SaveLoanApplicationDraftStepData | undefined;
+      let uploadedDocuments = completedDocuments;
+
+      if (localDocuments.length > 0) {
+        const response = await loanApplicationDraftApi.completeUploadStep(draftCode, {
+          documents: localDocuments,
+        });
+
+        if (response.success === false) {
+          throw new Error(response.message || "Hoàn tất hồ sơ thất bại.");
+        }
+
+        stepData = response.data?.step;
+        uploadedDocuments = response.data?.uploadedDocuments || [];
+      } else {
+        const response = await loanApplicationDraftApi.completeStep(
+          draftCode,
+          LOAN_APPLICATION_DRAFT_STEPS.uploadComplete,
+          { payload: { documents: completedDocuments } },
+        );
+
+        if (response.success === false) {
+          throw new Error(response.message || "Hoàn tất hồ sơ thất bại.");
+        }
+
+        stepData = response.data;
+      }
+
+      if (stepData?.applicationCode) {
+        setApplicationCode(stepData.applicationCode);
+      }
+
+      setCurrentStep(4);
+      setIsApplicationCompleted(true);
+      setCompletedDocuments(uploadedDocuments);
+      setSubmitMessage("Hồ sơ đã hoàn tất và chuyển sang trạng thái APP_COMPLETED.");
+      setIsCompletedDialogOpen(true);
+      toast.success("Hồ sơ đã hoàn tất");
+    } catch (error) {
+      console.error("Complete application error:", error);
+
+      if (error && typeof error === "object" && "raw" in error) {
+        console.error("Complete application response.data:", (error as { raw?: unknown }).raw);
+      }
+
+      const message = getApiErrorMessage(error);
+
+      setSubmitError(message);
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const validateBeforeSubmit = () => {
@@ -544,19 +796,9 @@ function UploadDocumentsScreen() {
     setSubmitError("");
     setSubmitMessage("");
 
-    const validationErrors = validateBeforeSubmit();
-
-    if (validationErrors.length > 0) {
-      const message = validationErrors.join(" ");
-
-      setMissingDocumentIds(missingRequiredUploadSlots.map(({ slot }) => slot.id));
-      setSubmitError(message);
-      toast.error(message);
-      return;
-    }
-
-    if (!finalAssetData) {
-      const message = "Thiếu dữ liệu tài sản.";
+    if (!isApplicationCompleted) {
+      const message =
+        "Vui lòng hoàn tất hồ sơ để chuyển sang APP_COMPLETED trước khi gửi phê duyệt.";
 
       setSubmitError(message);
       toast.error(message);
@@ -566,11 +808,10 @@ function UploadDocumentsScreen() {
     setIsSubmitting(true);
 
     try {
-      setUploadedDocuments(uploadedDocumentMetadata);
-
-      const response = await loanApplicationDraftApi.submit(draftCode, {
-        documents: buildSubmitDocuments(documentsByGroup),
-      });
+      const response = await loanApplicationDraftApi.submitCompletedApplication(
+        draftCode,
+        completedDocuments,
+      );
 
       if (response.success === false) {
         throw new Error(response.message || "Gửi hồ sơ phê duyệt thất bại.");
@@ -601,6 +842,15 @@ function UploadDocumentsScreen() {
     }
   };
 
+  const handlePrimaryAction = () => {
+    if (isApplicationCompleted) {
+      setIsConfirmOpen(true);
+      return;
+    }
+
+    void handleCompleteDocuments();
+  };
+
   const previewFileKind = getPreviewFileKind(previewFile?.type, previewFile?.name);
 
   return (
@@ -626,6 +876,13 @@ function UploadDocumentsScreen() {
                 {uploadGroups.map((group) => {
                   const groupFiles = documentsByGroup[group.id] || [];
                   const groupSlots = getGroupSlots(group);
+                  const savedGroupFileCount = groupSlots.filter(
+                    (slot) => savedDocumentsBySlot[slot.id],
+                  ).length;
+                  const displayedGroupFileCount = Math.max(
+                    groupFiles.length,
+                    savedGroupFileCount,
+                  );
 
                   return (
                     <AccordionItem
@@ -638,7 +895,7 @@ function UploadDocumentsScreen() {
                           <div>
                             <p className="text-base font-bold text-[#111827]">{group.title}</p>
                             <p className="mt-1 text-sm text-[#64748b]">
-                              {groupFiles.length}/{groupSlots.length}
+                              {displayedGroupFileCount}/{groupSlots.length}
                             </p>
                           </div>
                         </div>
@@ -652,9 +909,13 @@ function UploadDocumentsScreen() {
                               (file) => file.documentType === slot.id,
                             );
                             const uploadedFile = slotFiles[0];
+                            const savedDocument = savedDocumentsBySlot[slot.id];
+                            const savedPreviewFile = savedDocument
+                              ? toRemotePreviewFile(savedDocument, group.id, slot)
+                              : null;
                             const previewKind = getPreviewFileKind(
-                              uploadedFile?.type,
-                              uploadedFile?.name,
+                              uploadedFile?.type || savedPreviewFile?.type,
+                              uploadedFile?.name || savedPreviewFile?.name,
                             );
                             const isMissing = missingDocumentIds.includes(slot.id);
 
@@ -678,14 +939,21 @@ function UploadDocumentsScreen() {
                                         </>
                                       )}
                                     </p>
-                                    {uploadedFile ? (
+                                    {uploadedFile || savedDocument ? (
                                       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#64748b]">
                                         <span className="max-w-full truncate font-medium text-[#111827]">
-                                          {uploadedFile.name}
+                                          {uploadedFile?.name || savedDocument?.fileName}
                                         </span>
-                                        <span>{uploadedFile.type || "Không rõ loại"}</span>
-                                        <span>{formatFileSize(uploadedFile.size)}</span>
+                                        {uploadedFile && (
+                                          <>
+                                            <span>{uploadedFile.type || "Không rõ loại"}</span>
+                                            <span>{formatFileSize(uploadedFile.size)}</span>
+                                          </>
+                                        )}
                                         <span className="font-semibold text-[#15803d]">Đã tải</span>
+                                        {!uploadedFile && savedDocument && (
+                                          <span>Đã lưu trên S3</span>
+                                        )}
                                       </div>
                                     ) : (
                                       <p className="mt-1 text-sm text-[#64748b]">
@@ -712,23 +980,23 @@ function UploadDocumentsScreen() {
                                   />
 
                                   <div className="flex shrink-0 items-center gap-2">
-                                    {uploadedFile && (
+                                    {(uploadedFile || savedPreviewFile) && (
                                       <button
                                         type="button"
-                                        onClick={() => setPreviewFile(uploadedFile)}
+                                        onClick={() => setPreviewFile(uploadedFile || savedPreviewFile)}
                                         className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#dbe5dd] bg-[#f8fbf8] text-[#009b3a] transition-colors hover:border-[#009b3a]"
-                                        aria-label={`Xem ${uploadedFile.name}`}
+                                        aria-label={`Xem ${uploadedFile?.name || savedPreviewFile?.name}`}
                                       >
                                         {previewKind === "image" && (
                                           <img
-                                            src={uploadedFile.previewUrl}
-                                            alt={uploadedFile.name}
+                                            src={uploadedFile?.previewUrl || savedPreviewFile?.previewUrl}
+                                            alt={uploadedFile?.name || savedPreviewFile?.name}
                                             className="h-full w-full object-cover"
                                           />
                                         )}
                                         {previewKind === "video" && (
                                           <video
-                                            src={uploadedFile.previewUrl}
+                                            src={uploadedFile?.previewUrl || savedPreviewFile?.previewUrl}
                                             className="h-full w-full object-cover"
                                             muted
                                             preload="metadata"
@@ -754,7 +1022,7 @@ function UploadDocumentsScreen() {
                                       className="h-10 rounded-xl border-[#009b3a] px-4 font-bold text-[#009b3a] transition-colors hover:bg-[#ecfdf3] hover:text-[#009b3a]"
                                     >
                                       <Upload className="mr-2 h-4 w-4" />
-                                      {uploadedFile ? "Thay thế" : "Tải lên"}
+                                      {uploadedFile || savedDocument ? "Thay thế" : "Tải lên"}
                                     </Button>
 
                                     {uploadedFile && (
@@ -764,6 +1032,18 @@ function UploadDocumentsScreen() {
                                         onClick={() => removeDocument(group.id, uploadedFile.id)}
                                         className="h-10 w-10 rounded-lg p-0 text-red-500 hover:bg-red-50 hover:text-red-600"
                                         aria-label={`Xóa ${uploadedFile.name}`}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                    {!uploadedFile && savedDocument && (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        disabled={isSubmitting}
+                                        onClick={() => void removeSavedDocument(slot.id, savedDocument)}
+                                        className="h-10 w-10 rounded-lg p-0 text-red-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
+                                        aria-label={`Xóa ${savedDocument.fileName}`}
                                       >
                                         <Trash2 className="h-4 w-4" />
                                       </Button>
@@ -861,24 +1141,53 @@ function UploadDocumentsScreen() {
               <Button
                 type="button"
                 disabled={isSubmitting}
-                onClick={handleCompleteDocuments}
+                onClick={handlePrimaryAction}
                 className="h-11 rounded-xl bg-[#009b3a] px-8 font-bold text-white transition-colors hover:bg-[#008232] disabled:opacity-70"
               >
-                {isSubmitting ? "Đang gửi..." : "Hoàn tất hồ sơ"}
+                {isSubmitting
+                  ? "Đang xử lý..."
+                  : isApplicationCompleted
+                    ? "Gửi đi phê duyệt"
+                    : "Hoàn tất hồ sơ"}
               </Button>
             </div>
           </div>
         </section>
       </main>
 
+      <Dialog open={isCompletedDialogOpen} onOpenChange={setIsCompletedDialogOpen}>
+        <DialogContent className="w-[92vw] max-w-md rounded-2xl border-[#dbe5dd] bg-white p-6">
+          <DialogHeader className="text-center">
+            <DialogTitle className="text-xl font-bold text-[#111827]">
+              Hồ sơ đã hoàn tất
+            </DialogTitle>
+            <DialogDescription className="text-sm text-[#64748b]">
+              Hồ sơ đã được chuyển sang trạng thái APP_COMPLETED. Bạn có thể gửi đi
+              phê duyệt khi đã sẵn sàng.
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="mt-4 gap-3 sm:justify-center sm:space-x-0">
+            <Button
+              type="button"
+              onClick={() => setIsCompletedDialogOpen(false)}
+              className="h-11 min-w-40 rounded-xl bg-[#009b3a] px-6 font-bold text-white transition-colors hover:bg-[#008232]"
+            >
+              Đã hiểu
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
         <DialogContent className="w-[92vw] max-w-md rounded-2xl border-[#dbe5dd] bg-white p-6">
           <DialogHeader className="text-center">
             <DialogTitle className="text-xl font-bold text-[#111827]">
-              Bạn có muốn chỉnh sửa gì thêm không?
+              Gửi hồ sơ đi phê duyệt?
             </DialogTitle>
-            <DialogDescription className="sr-only">
-              Xác nhận gửi hồ sơ đi phê duyệt.
+            <DialogDescription className="text-sm text-[#64748b]">
+              Hồ sơ đang ở trạng thái APP_COMPLETED. Sau khi gửi, hồ sơ sẽ chuyển
+              sang APP_SUBMITTED.
             </DialogDescription>
           </DialogHeader>
 
@@ -922,7 +1231,9 @@ function UploadDocumentsScreen() {
                       {previewFile.name}
                     </DialogTitle>
                     <DialogDescription className="mt-1 text-sm text-[#64748b]">
-                      {formatFileSize(previewFile.size)} - Đã tải
+                      {"remote" in previewFile
+                        ? "Đã lưu trên S3"
+                        : `${formatFileSize(previewFile.size)} - Đã tải`}
                     </DialogDescription>
                   </div>
                   <DialogClose asChild>
@@ -983,6 +1294,14 @@ function UploadDocumentsScreen() {
                     <p className="font-semibold text-[#111827]">
                       Chưa hỗ trợ xem trước loại file này.
                     </p>
+                    <a
+                      href={previewFile.previewUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-bold text-[#009b3a] underline-offset-4 hover:underline"
+                    >
+                      Mở file trong tab mới
+                    </a>
                   </div>
                 )}
               </div>

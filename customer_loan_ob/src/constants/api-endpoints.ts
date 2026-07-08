@@ -36,6 +36,8 @@ export const API_ENDPOINTS = {
       `/loan-applications/onboarding/${draftCode}/steps/${stepCode}/complete`,
     documents: (draftCode: string) =>
       `/loan-applications/onboarding/${draftCode}/documents`,
+    document: (draftCode: string, documentId: string) =>
+      `/loan-applications/onboarding/${draftCode}/documents/${documentId}`,
     submit: (draftCode: string) => `/loan-applications/onboarding/${draftCode}/submit`,
   },
 

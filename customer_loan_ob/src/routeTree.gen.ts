@@ -20,6 +20,7 @@ import { Route as LoanDraftsRouteImport } from './routes/loan/drafts'
 import { Route as LoanCustomerIdentifyRouteImport } from './routes/loan/customer-identify'
 import { Route as LoanCustomerAssetDetailRouteImport } from './routes/loan/customer-asset-detail'
 import { Route as LoanApplicationsRouteImport } from './routes/loan/applications'
+import { Route as LoanApplicationsApplicationCodeRouteImport } from './routes/loan/applications.$applicationCode'
 
 const SettingRoute = SettingRouteImport.update({
   id: '/setting',
@@ -76,6 +77,12 @@ const LoanApplicationsRoute = LoanApplicationsRouteImport.update({
   path: '/loan/applications',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoanApplicationsApplicationCodeRoute =
+  LoanApplicationsApplicationCodeRouteImport.update({
+    id: '/$applicationCode',
+    path: '/$applicationCode',
+    getParentRoute: () => LoanApplicationsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -83,12 +90,13 @@ export interface FileRoutesByFullPath {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/setting': typeof SettingRoute
-  '/loan/applications': typeof LoanApplicationsRoute
+  '/loan/applications': typeof LoanApplicationsRouteWithChildren
   '/loan/customer-asset-detail': typeof LoanCustomerAssetDetailRoute
   '/loan/customer-identify': typeof LoanCustomerIdentifyRoute
   '/loan/drafts': typeof LoanDraftsRoute
   '/loan/preliminary-info': typeof LoanPreliminaryInfoRoute
   '/loan/upload-documents': typeof LoanUploadDocumentsRoute
+  '/loan/applications/$applicationCode': typeof LoanApplicationsApplicationCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -96,12 +104,13 @@ export interface FileRoutesByTo {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/setting': typeof SettingRoute
-  '/loan/applications': typeof LoanApplicationsRoute
+  '/loan/applications': typeof LoanApplicationsRouteWithChildren
   '/loan/customer-asset-detail': typeof LoanCustomerAssetDetailRoute
   '/loan/customer-identify': typeof LoanCustomerIdentifyRoute
   '/loan/drafts': typeof LoanDraftsRoute
   '/loan/preliminary-info': typeof LoanPreliminaryInfoRoute
   '/loan/upload-documents': typeof LoanUploadDocumentsRoute
+  '/loan/applications/$applicationCode': typeof LoanApplicationsApplicationCodeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -110,12 +119,13 @@ export interface FileRoutesById {
   '/home': typeof HomeRoute
   '/login': typeof LoginRoute
   '/setting': typeof SettingRoute
-  '/loan/applications': typeof LoanApplicationsRoute
+  '/loan/applications': typeof LoanApplicationsRouteWithChildren
   '/loan/customer-asset-detail': typeof LoanCustomerAssetDetailRoute
   '/loan/customer-identify': typeof LoanCustomerIdentifyRoute
   '/loan/drafts': typeof LoanDraftsRoute
   '/loan/preliminary-info': typeof LoanPreliminaryInfoRoute
   '/loan/upload-documents': typeof LoanUploadDocumentsRoute
+  '/loan/applications/$applicationCode': typeof LoanApplicationsApplicationCodeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -131,6 +141,7 @@ export interface FileRouteTypes {
     | '/loan/drafts'
     | '/loan/preliminary-info'
     | '/loan/upload-documents'
+    | '/loan/applications/$applicationCode'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -144,6 +155,7 @@ export interface FileRouteTypes {
     | '/loan/drafts'
     | '/loan/preliminary-info'
     | '/loan/upload-documents'
+    | '/loan/applications/$applicationCode'
   id:
     | '__root__'
     | '/'
@@ -157,6 +169,7 @@ export interface FileRouteTypes {
     | '/loan/drafts'
     | '/loan/preliminary-info'
     | '/loan/upload-documents'
+    | '/loan/applications/$applicationCode'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -165,7 +178,7 @@ export interface RootRouteChildren {
   HomeRoute: typeof HomeRoute
   LoginRoute: typeof LoginRoute
   SettingRoute: typeof SettingRoute
-  LoanApplicationsRoute: typeof LoanApplicationsRoute
+  LoanApplicationsRoute: typeof LoanApplicationsRouteWithChildren
   LoanCustomerAssetDetailRoute: typeof LoanCustomerAssetDetailRoute
   LoanCustomerIdentifyRoute: typeof LoanCustomerIdentifyRoute
   LoanDraftsRoute: typeof LoanDraftsRoute
@@ -252,8 +265,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoanApplicationsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/loan/applications/$applicationCode': {
+      id: '/loan/applications/$applicationCode'
+      path: '/$applicationCode'
+      fullPath: '/loan/applications/$applicationCode'
+      preLoaderRoute: typeof LoanApplicationsApplicationCodeRouteImport
+      parentRoute: typeof LoanApplicationsRoute
+    }
   }
 }
+
+interface LoanApplicationsRouteChildren {
+  LoanApplicationsApplicationCodeRoute: typeof LoanApplicationsApplicationCodeRoute
+}
+
+const LoanApplicationsRouteChildren: LoanApplicationsRouteChildren = {
+  LoanApplicationsApplicationCodeRoute: LoanApplicationsApplicationCodeRoute,
+}
+
+const LoanApplicationsRouteWithChildren =
+  LoanApplicationsRoute._addFileChildren(LoanApplicationsRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -261,7 +292,7 @@ const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRoute,
   LoginRoute: LoginRoute,
   SettingRoute: SettingRoute,
-  LoanApplicationsRoute: LoanApplicationsRoute,
+  LoanApplicationsRoute: LoanApplicationsRouteWithChildren,
   LoanCustomerAssetDetailRoute: LoanCustomerAssetDetailRoute,
   LoanCustomerIdentifyRoute: LoanCustomerIdentifyRoute,
   LoanDraftsRoute: LoanDraftsRoute,

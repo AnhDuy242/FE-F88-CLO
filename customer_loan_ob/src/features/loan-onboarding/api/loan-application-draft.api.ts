@@ -68,6 +68,7 @@ export type LoanApplicationDraftOverview = {
   draftId?: string;
   applicationId?: string;
   applicationCode?: string;
+  applicationState?: string;
   draftCode?: string;
   customerId?: string;
   customer?: LoanApplicationDraftCustomer;
@@ -158,6 +159,7 @@ export type UploadedLoanApplicationDocument = {
   fileUrl: string;
   fileName: string;
   uploadedAt?: string;
+  uploadedBy?: string | null;
 };
 
 export type UploadLoanApplicationDraftDocumentsData = {
@@ -168,6 +170,30 @@ export type UploadLoanApplicationDraftDocumentsData = {
 
 export type UploadLoanApplicationDraftDocumentsResponse =
   ApiResponse<UploadLoanApplicationDraftDocumentsData>;
+
+export type LoanApplicationDocumentListData = {
+  applicationCode?: string;
+  documentCount?: number;
+  documents: UploadedLoanApplicationDocument[];
+};
+
+export type LoanApplicationDocumentListResponse =
+  ApiResponse<LoanApplicationDocumentListData>;
+
+export type DeleteLoanApplicationDocumentResponse = ApiResponse<null>;
+
+export type CompleteUploadDocumentsPayload = {
+  documents: UploadLoanApplicationDraftDocument[];
+  uploadedBy?: string;
+};
+
+export type CompleteUploadDocumentsData = {
+  uploadedDocuments: UploadedLoanApplicationDocument[];
+  step?: SaveLoanApplicationDraftStepData;
+};
+
+export type CompleteUploadDocumentsResponse =
+  ApiResponse<CompleteUploadDocumentsData>;
 
 export type SubmitLoanApplicationDraftData = {
   draftCode?: string;
@@ -397,6 +423,22 @@ export const loanApplicationDraftApi = {
     draftCode: string,
     payload: SubmitLoanApplicationDraftPayload,
   ): Promise<SubmitLoanApplicationDraftResponse> => {
+    const completeResponse = await loanApplicationDraftApi.completeUploadStep(
+      draftCode,
+      payload,
+    );
+    const uploadedDocuments = completeResponse.data?.uploadedDocuments || [];
+
+    return loanApplicationDraftApi.submitCompletedApplication(
+      draftCode,
+      uploadedDocuments,
+    );
+  },
+
+  completeUploadStep: async (
+    draftCode: string,
+    payload: CompleteUploadDocumentsPayload,
+  ): Promise<CompleteUploadDocumentsResponse> => {
     const uploadResponse = await loanApplicationDraftApi.uploadDocuments(
       draftCode,
       payload.documents,
@@ -404,18 +446,34 @@ export const loanApplicationDraftApi = {
     );
     const uploadedDocuments = uploadResponse.data?.documents || [];
 
-    await loanApplicationDraftApi.completeStep(
+    const stepResponse = await loanApplicationDraftApi.completeStep(
       draftCode,
       LOAN_APPLICATION_DRAFT_STEPS.uploadComplete,
       { payload: { documents: uploadedDocuments } },
     );
 
+    return {
+      success: stepResponse.success,
+      message: stepResponse.message,
+      data: {
+        uploadedDocuments,
+        step: stepResponse.data,
+      },
+      errorCode: stepResponse.errorCode,
+      timestamp: stepResponse.timestamp,
+    };
+  },
+
+  submitCompletedApplication: async (
+    draftCode: string,
+    documents: UploadedLoanApplicationDocument[] = [],
+  ): Promise<SubmitLoanApplicationDraftResponse> => {
     const response = await axiosClient.post<
       SubmitLoanApplicationDraftResponse,
       SubmitLoanApplicationDraftResponse,
       { documents: UploadedLoanApplicationDocument[] }
     >(API_ENDPOINTS.loanApplicationDraft.submit(draftCode), {
-      documents: uploadedDocuments,
+      documents,
     });
 
     return normalizeSubmitResponse(response);
@@ -442,5 +500,24 @@ export const loanApplicationDraftApi = {
       UploadLoanApplicationDraftDocumentsResponse,
       FormData
     >(API_ENDPOINTS.loanApplicationDraft.documents(draftCode), formData);
+  },
+
+  listDocuments: async (
+    draftCode: string,
+  ): Promise<LoanApplicationDocumentListResponse> => {
+    return axiosClient.get<
+      LoanApplicationDocumentListResponse,
+      LoanApplicationDocumentListResponse
+    >(API_ENDPOINTS.loanApplicationDraft.documents(draftCode));
+  },
+
+  deleteDocument: async (
+    draftCode: string,
+    documentId: string,
+  ): Promise<DeleteLoanApplicationDocumentResponse> => {
+    return axiosClient.delete<
+      DeleteLoanApplicationDocumentResponse,
+      DeleteLoanApplicationDocumentResponse
+    >(API_ENDPOINTS.loanApplicationDraft.document(draftCode, documentId));
   },
 };

@@ -1,5 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { FileText, RefreshCw } from "lucide-react";
+import {
+  Outlet,
+  createFileRoute,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
+import { Eye, FileText, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { API_ENDPOINTS } from "@/constants/api-endpoints";
@@ -82,6 +87,8 @@ async function fetchLoanApplications() {
 }
 
 function LoanApplicationsScreen() {
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [applications, setApplications] = useState<LoanApplicationListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +114,10 @@ function LoanApplicationsScreen() {
   useEffect(() => {
     void loadApplications();
   }, []);
+
+  if (pathname !== "/loan/applications") {
+    return <Outlet />;
+  }
 
   return (
     <div className="min-h-screen bg-[#f6faf5] px-8 py-6">
@@ -176,6 +187,7 @@ function LoanApplicationsScreen() {
                   <TableHead>Gói vay</TableHead>
                   <TableHead>Trạng thái</TableHead>
                   <TableHead>Cập nhật</TableHead>
+                  <TableHead className="text-right">Chi tiết</TableHead>
                 </TableRow>
               </TableHeader>
 
@@ -212,6 +224,23 @@ function LoanApplicationsScreen() {
                       </Badge>
                     </TableCell>
                     <TableCell>{formatDateTime(application.updatedAt)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 border-[#009b3a] text-[#009b3a] hover:bg-[#ecfdf3] hover:text-[#009b3a]"
+                        onClick={() =>
+                          navigate({
+                            to: "/loan/applications/$applicationCode",
+                            params: { applicationCode: application.applicationCode },
+                          })
+                        }
+                      >
+                        <Eye className="h-4 w-4" />
+                        Xem
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

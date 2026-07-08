@@ -39,7 +39,7 @@ import {
 } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
 import {
   loanApplicationDraftApi,
-  type SubmitLoanApplicationDraftDocument,
+  type UploadLoanApplicationDraftDocument,
 } from "@/features/loan-onboarding/api/loan-application-draft.api";
 
 export const Route = createFileRoute("/loan/upload-documents")({
@@ -84,16 +84,16 @@ const SUBMIT_DOCUMENT_CODE_BY_SLOT_ID: Record<string, string> = {
   "cccd-back": "CITIZEN_ID_BACK",
   "vehicle-registration-front": "VEHICLE_REGISTRATION_FRONT",
   "vehicle-registration-back": "VEHICLE_REGISTRATION_BACK",
-  "asset-front": "ASSET_FRONT",
-  "asset-back": "ASSET_REAR",
-  "asset-left": "ASSET_LEFT",
-  "asset-right": "ASSET_RIGHT",
-  "frame-number": "ASSET_FRAME_NUMBER",
-  "engine-number": "ASSET_ENGINE_NUMBER",
-  odo: "ASSET_ODO",
-  portrait: "CUSTOMER_PORTRAIT",
+  "asset-front": "ASSET_FRONT_IMAGE",
+  "asset-back": "ASSET_BACK_IMAGE",
+  "asset-left": "ASSET_LEFT_IMAGE",
+  "asset-right": "ASSET_RIGHT_IMAGE",
+  "frame-number": "ASSET_FRAME_NUMBER_IMAGE",
+  "engine-number": "ASSET_ENGINE_NUMBER_IMAGE",
+  odo: "ASSET_ODOMETER_IMAGE",
+  portrait: "BORROWER_PORTRAIT_IMAGE",
   "portrait-with-cccd": "BORROWER_HOLDING_CITIZEN_ID_IMAGE",
-  "portrait-video": "CUSTOMER_PORTRAIT_VIDEO",
+  "portrait-video": "BORROWER_PORTRAIT_VIDEO",
   "income-proof": "INCOME_PROOF",
   "residence-proof": "RESIDENCE_PROOF_DOCUMENT",
   "signed-contract": "CUSTOMER_SIGNED_CONTRACT",
@@ -255,13 +255,12 @@ function toSubmitDocumentCode(documentType: string) {
 
 function buildSubmitDocuments(
   documentsByGroup: Record<string, LocalDocumentFile[]>,
-): SubmitLoanApplicationDraftDocument[] {
+): UploadLoanApplicationDraftDocument[] {
   return Object.values(documentsByGroup)
     .flat()
     .map((document) => ({
       documentTypeCode: toSubmitDocumentCode(document.documentType),
-      fileUrl: document.previewUrl,
-      fileName: document.name,
+      file: document.file,
     }));
 }
 

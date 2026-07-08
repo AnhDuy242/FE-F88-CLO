@@ -141,9 +141,32 @@ export type SubmitLoanApplicationDraftDocument = {
   fileName: string;
 };
 
-export type SubmitLoanApplicationDraftPayload = {
-  documents: SubmitLoanApplicationDraftDocument[];
+export type UploadLoanApplicationDraftDocument = {
+  documentTypeCode: string;
+  file: File;
 };
+
+export type SubmitLoanApplicationDraftPayload = {
+  documents: UploadLoanApplicationDraftDocument[];
+};
+
+export type UploadedLoanApplicationDocument = {
+  documentId?: string;
+  documentTypeCode: string;
+  documentTypeName?: string;
+  fileUrl: string;
+  fileName: string;
+  uploadedAt?: string;
+};
+
+export type UploadLoanApplicationDraftDocumentsData = {
+  applicationCode?: string;
+  uploadedCount?: number;
+  documents: UploadedLoanApplicationDocument[];
+};
+
+export type UploadLoanApplicationDraftDocumentsResponse =
+  ApiResponse<UploadLoanApplicationDraftDocumentsData>;
 
 export type SubmitLoanApplicationDraftData = {
   draftCode?: string;
@@ -371,18 +394,44 @@ export const loanApplicationDraftApi = {
     draftCode: string,
     payload: SubmitLoanApplicationDraftPayload,
   ): Promise<SubmitLoanApplicationDraftResponse> => {
+    const uploadResponse = await loanApplicationDraftApi.uploadDocuments(
+      draftCode,
+      payload.documents,
+    );
+    const uploadedDocuments = uploadResponse.data?.documents || [];
+
     await loanApplicationDraftApi.completeStep(
       draftCode,
       LOAN_APPLICATION_DRAFT_STEPS.uploadComplete,
-      { payload },
+      { payload: { documents: uploadedDocuments } },
     );
 
     const response = await axiosClient.post<
       SubmitLoanApplicationDraftResponse,
       SubmitLoanApplicationDraftResponse,
-      SubmitLoanApplicationDraftPayload
-    >(API_ENDPOINTS.loanApplicationDraft.submit(draftCode), payload);
+      { documents: UploadedLoanApplicationDocument[] }
+    >(API_ENDPOINTS.loanApplicationDraft.submit(draftCode), {
+      documents: uploadedDocuments,
+    });
 
     return normalizeSubmitResponse(response);
+  },
+
+  uploadDocuments: async (
+    draftCode: string,
+    documents: UploadLoanApplicationDraftDocument[],
+  ): Promise<UploadLoanApplicationDraftDocumentsResponse> => {
+    const formData = new FormData();
+
+    documents.forEach((document) => {
+      formData.append("documentTypeCodes", document.documentTypeCode);
+      formData.append("files", document.file);
+    });
+
+    return axiosClient.post<
+      UploadLoanApplicationDraftDocumentsResponse,
+      UploadLoanApplicationDraftDocumentsResponse,
+      FormData
+    >(API_ENDPOINTS.loanApplicationDraft.documents(draftCode), formData);
   },
 };

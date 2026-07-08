@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
-  Eye,
   FileText,
   Trash2,
   Upload,
@@ -20,8 +19,10 @@ import {
 } from "@/components/ui/accordion";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -160,6 +161,20 @@ const uploadGroups: UploadGroup[] = [
     ],
   },
 ];
+
+function getGroupSlots(group: UploadGroup) {
+  return group.slots || [{ id: `${group.id}-generic`, label: group.title }];
+}
+
+function getAllUploadSlots() {
+  return uploadGroups.flatMap((group) =>
+    getGroupSlots(group).map((slot) => ({
+      group,
+      slot,
+    })),
+  );
+}
+
 function getStringFromRecord(source: unknown, keys: string[]) {
   if (!source || typeof source !== "object") return "";
 
@@ -304,6 +319,8 @@ function UploadDocumentsScreen() {
   const [documentsByGroup, setDocumentsByGroup] = useState<Record<string, LocalDocumentFile[]>>({});
   const [previewFile, setPreviewFile] = useState<LocalDocumentFile | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [missingDocumentIds, setMissingDocumentIds] = useState<string[]>([]);
   const [submitError, setSubmitError] = useState("");
   const [submitMessage, setSubmitMessage] = useState("");
 
@@ -347,6 +364,20 @@ function UploadDocumentsScreen() {
     step3Data?.selectedLoanProductCode ||
     getStringFromRecord(selectedLoanProduct, ["productCode"]) ||
     getStringFromRecord(loanRecommendation, ["recommendedProductCode"]);
+
+  const missingUploadSlots = useMemo(() => {
+    return getAllUploadSlots().filter(({ group, slot }) => {
+      return !(documentsByGroup[group.id] || []).some(
+        (file) => file.documentType === slot.id,
+      );
+    });
+  }, [documentsByGroup]);
+
+  const isUploadComplete = missingUploadSlots.length === 0;
+
+  const getMissingDocumentsMessage = (labels: string[]) => {
+    return `Vui lòng upload đủ chứng từ còn thiếu: ${labels.join(", ")}.`;
+  };
 
   const handleBack = () => {
     setCurrentStep(3);
@@ -398,7 +429,7 @@ function UploadDocumentsScreen() {
               file,
               group.id,
               slot?.id || `${group.id}-${baseItems.length + 1}`,
-              Boolean(slot?.required),
+              true,
             ),
           );
 
@@ -416,7 +447,14 @@ function UploadDocumentsScreen() {
           [group.id]: [...baseItems, ...nextItems],
         };
       });
-      toast.success("Đã thêm file chứng từ vào phiên làm việc.");
+      if (slot) {
+        setMissingDocumentIds((current) =>
+          current.filter((documentId) => documentId !== slot.id),
+        );
+      }
+      setSubmitError("");
+      setSubmitMessage("");
+      toast.success("Đã tải chứng từ.");
 
       event.target.value = "";
     };
@@ -439,6 +477,34 @@ function UploadDocumentsScreen() {
         [groupId]: (current[groupId] || []).filter((item) => item.id !== documentId),
       };
     });
+
+    setSubmitMessage("");
+  };
+
+  const validateRequiredDocuments = () => {
+    const missingLabels = missingUploadSlots.map(({ slot }) => slot.label);
+    const missingIds = missingUploadSlots.map(({ slot }) => slot.id);
+
+    setMissingDocumentIds(missingIds);
+
+    if (missingLabels.length > 0) {
+      const message = getMissingDocumentsMessage(missingLabels);
+
+      setSubmitError(message);
+      toast.error(message);
+      return false;
+    }
+
+    setSubmitError("");
+    return true;
+  };
+
+  const handleCompleteDocuments = () => {
+    setSubmitMessage("");
+
+    if (!validateRequiredDocuments()) return;
+
+    setIsConfirmOpen(true);
   };
 
   const validateBeforeSubmit = () => {
@@ -464,19 +530,10 @@ function UploadDocumentsScreen() {
       errors.push("Chưa chọn gói vay cuối cùng.");
     }
 
-    const missingRequiredSlots = uploadGroups.flatMap((group) => {
-      return (group.slots || [])
-        .filter((slot) => slot.required)
-        .filter((slot) => {
-          return !(documentsByGroup[group.id] || []).some(
-            (file) => file.documentType === slot.id,
-          );
-        })
-        .map((slot) => slot.label);
-    });
+    const missingRequiredSlots = missingUploadSlots.map(({ slot }) => slot.label);
 
     if (missingRequiredSlots.length > 0) {
-      errors.push(`Thiếu chứng từ bắt buộc: ${missingRequiredSlots.join(", ")}.`);
+      errors.push(getMissingDocumentsMessage(missingRequiredSlots));
     }
 
     return errors;
@@ -491,6 +548,7 @@ function UploadDocumentsScreen() {
     if (validationErrors.length > 0) {
       const message = validationErrors.join(" ");
 
+      setMissingDocumentIds(missingUploadSlots.map(({ slot }) => slot.id));
       setSubmitError(message);
       toast.error(message);
       return;
@@ -521,10 +579,11 @@ function UploadDocumentsScreen() {
         setApplicationCode(response.data.applicationCode);
       }
       setCurrentStep(4);
-      const message = response.data?.message || response.message || "Hồ sơ đã gửi phê duyệt.";
 
-      setSubmitMessage(message);
-      toast.success(message);
+      setIsConfirmOpen(false);
+      setSubmitMessage("Gửi hồ sơ thành công");
+      toast.success("Gửi hồ sơ thành công");
+      navigate({ to: "/home" });
     } catch (error) {
       console.error("Submit final approval error:", error);
 
@@ -565,6 +624,7 @@ function UploadDocumentsScreen() {
               >
                 {uploadGroups.map((group) => {
                   const groupFiles = documentsByGroup[group.id] || [];
+                  const groupSlots = getGroupSlots(group);
 
                   return (
                     <AccordionItem
@@ -577,35 +637,61 @@ function UploadDocumentsScreen() {
                           <div>
                             <p className="text-base font-bold text-[#111827]">{group.title}</p>
                             <p className="mt-1 text-sm text-[#64748b]">
-                              {groupFiles.length}/{group.maxFiles}
+                              {groupFiles.length}/{groupSlots.length}
                             </p>
                           </div>
                         </div>
                       </AccordionTrigger>
 
                       <AccordionContent>
-                        <div className="space-y-4">
-                          {(group.slots || [{ id: `${group.id}-generic`, label: group.title }]).map((slot) => {
+                        <div className="space-y-3">
+                          {groupSlots.map((slot) => {
                             const inputKey = `${group.id}-${slot.id}`;
                             const slotFiles = groupFiles.filter(
                               (file) => file.documentType === slot.id,
                             );
+                            const uploadedFile = slotFiles[0];
+                            const previewKind = getPreviewFileKind(
+                              uploadedFile?.type,
+                              uploadedFile?.name,
+                            );
+                            const isMissing = missingDocumentIds.includes(slot.id);
 
                             return (
                               <div
                                 key={slot.id}
-                                className="rounded-xl border border-dashed border-[#c8d8cc] bg-white p-4 transition-colors duration-200 hover:border-[#009b3a]"
+                                className={`rounded-xl border bg-white px-4 py-3 transition-colors duration-200 ${
+                                  isMissing
+                                    ? "border-red-300 bg-red-50/40"
+                                    : "border-dashed border-[#c8d8cc] hover:border-[#009b3a]"
+                                }`}
                               >
                                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                  <div>
+                                  <div className="min-w-0 flex-1">
                                     <p className="font-semibold text-[#111827]">
-                                      {slot.label} {slot.required && <span className="text-red-500">*</span>}
+                                      {slot.label} <span className="text-red-500">*</span>
                                     </p>
-                                    <p className="mt-1 text-sm text-[#64748b]">
-                                      {slot.accept?.startsWith("video")
-                                        ? "MP4, WEBM hoặc MOV. File chỉ giữ tạm trên màn này."
-                                        : "JPG, PNG, WEBP hoặc PDF. File chỉ giữ tạm trên màn này."}
-                                    </p>
+                                    {uploadedFile ? (
+                                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#64748b]">
+                                        <span className="max-w-full truncate font-medium text-[#111827]">
+                                          {uploadedFile.name}
+                                        </span>
+                                        <span>{uploadedFile.type || "Không rõ loại"}</span>
+                                        <span>{formatFileSize(uploadedFile.size)}</span>
+                                        <span className="font-semibold text-[#15803d]">Đã tải</span>
+                                      </div>
+                                    ) : (
+                                      <p className="mt-1 text-sm text-[#64748b]">
+                                        {slot.accept?.startsWith("video")
+                                          ? "MP4, WEBM hoặc MOV. File sẽ được gửi khi phê duyệt."
+                                          : "JPG, PNG, WEBP hoặc PDF. File sẽ được gửi khi phê duyệt."}
+                                      </p>
+                                    )}
+                                    {isMissing && (
+                                      <p className="mt-2 text-sm font-medium text-red-600">
+                                        Vui lòng upload chứng từ này.
+                                      </p>
+                                    )}
                                   </div>
 
                                   <input
@@ -614,101 +700,69 @@ function UploadDocumentsScreen() {
                                     }}
                                     type="file"
                                     accept={slot.accept || "image/*,.pdf"}
-                                    multiple={!group.slots}
                                     className="hidden"
                                     onChange={handleFilesChange(group, slot)}
                                   />
 
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    disabled={groupFiles.length >= group.maxFiles && slotFiles.length === 0}
-                                    onClick={() => fileInputRefs.current[inputKey]?.click()}
-                                    className="h-11 rounded-xl border-[#009b3a] px-5 font-bold text-[#009b3a] transition-colors hover:bg-[#ecfdf3] hover:text-[#009b3a]"
-                                  >
-                                    <Upload className="mr-2 h-4 w-4" />
-                                    {slotFiles.length > 0 ? "Thay thế" : "Tải lên"}
-                                  </Button>
-                                </div>
-
-                                {slotFiles.length > 0 && (
-                                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                                    {slotFiles.map((file) => {
-                                      const kind = getPreviewFileKind(file.type, file.name);
-
-                                      return (
-                                        <div
-                                          key={file.id}
-                                          className="flex gap-3 rounded-xl border border-[#dbe5dd] bg-[#f8fbf8] p-3"
-                                        >
-                                          <button
-                                            type="button"
-                                            onClick={() => setPreviewFile(file)}
-                                            className="flex h-20 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#dbe5dd] bg-white text-[#009b3a] transition-colors hover:border-[#009b3a]"
-                                            aria-label={`Xem ${file.name}`}
-                                          >
-                                            {kind === "image" && (
-                                              <img
-                                                src={file.previewUrl}
-                                                alt={file.name}
-                                                className="h-full w-full object-cover"
-                                              />
-                                            )}
-                                            {kind === "video" && (
-                                              <video
-                                                src={file.previewUrl}
-                                                className="h-full w-full object-cover"
-                                                muted
-                                                preload="metadata"
-                                              />
-                                            )}
-                                            {kind === "pdf" && (
-                                              <div className="flex flex-col items-center gap-1 text-xs font-bold">
-                                                <FileText className="h-7 w-7" />
-                                                PDF
-                                              </div>
-                                            )}
-                                            {kind === "other" && (
-                                              <FileText className="h-7 w-7" />
-                                            )}
-                                          </button>
-
-                                          <div className="min-w-0 flex-1">
-                                            <p className="truncate text-sm font-bold text-[#111827]">
-                                              {file.name}
-                                            </p>
-                                            <p className="mt-1 text-xs text-[#64748b]">
-                                              {formatFileSize(file.size)}
-                                            </p>
-                                            <p className="mt-1 text-xs font-medium text-[#15803d]">
-                                              Đã chọn trong phiên làm việc
-                                            </p>
-                                            <div className="mt-3 flex flex-wrap gap-2">
-                                              <Button
-                                                type="button"
-                                                variant="outline"
-                                                onClick={() => setPreviewFile(file)}
-                                                className="h-8 rounded-lg border-[#009b3a] px-3 text-xs font-bold text-[#009b3a] hover:bg-[#ecfdf3] hover:text-[#009b3a]"
-                                              >
-                                                <Eye className="mr-1 h-3.5 w-3.5" />
-                                                Xem chi tiết
-                                              </Button>
-                                              <Button
-                                                type="button"
-                                                variant="ghost"
-                                                onClick={() => removeDocument(group.id, file.id)}
-                                                className="h-8 rounded-lg px-3 text-xs font-bold text-red-500 hover:bg-red-50 hover:text-red-600"
-                                              >
-                                                <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                                Xóa
-                                              </Button>
-                                            </div>
+                                  <div className="flex shrink-0 items-center gap-2">
+                                    {uploadedFile && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setPreviewFile(uploadedFile)}
+                                        className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#dbe5dd] bg-[#f8fbf8] text-[#009b3a] transition-colors hover:border-[#009b3a]"
+                                        aria-label={`Xem ${uploadedFile.name}`}
+                                      >
+                                        {previewKind === "image" && (
+                                          <img
+                                            src={uploadedFile.previewUrl}
+                                            alt={uploadedFile.name}
+                                            className="h-full w-full object-cover"
+                                          />
+                                        )}
+                                        {previewKind === "video" && (
+                                          <video
+                                            src={uploadedFile.previewUrl}
+                                            className="h-full w-full object-cover"
+                                            muted
+                                            preload="metadata"
+                                          />
+                                        )}
+                                        {previewKind === "pdf" && (
+                                          <div className="flex flex-col items-center gap-0.5 text-[10px] font-bold">
+                                            <FileText className="h-5 w-5" />
+                                            PDF
                                           </div>
-                                        </div>
-                                      );
-                                    })}
+                                        )}
+                                        {previewKind === "other" && (
+                                          <FileText className="h-5 w-5" />
+                                        )}
+                                      </button>
+                                    )}
+
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      disabled={groupFiles.length >= group.maxFiles && slotFiles.length === 0}
+                                      onClick={() => fileInputRefs.current[inputKey]?.click()}
+                                      className="h-10 rounded-xl border-[#009b3a] px-4 font-bold text-[#009b3a] transition-colors hover:bg-[#ecfdf3] hover:text-[#009b3a]"
+                                    >
+                                      <Upload className="mr-2 h-4 w-4" />
+                                      {uploadedFile ? "Thay thế" : "Tải lên"}
+                                    </Button>
+
+                                    {uploadedFile && (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        onClick={() => removeDocument(group.id, uploadedFile.id)}
+                                        className="h-10 w-10 rounded-lg p-0 text-red-500 hover:bg-red-50 hover:text-red-600"
+                                        aria-label={`Xóa ${uploadedFile.name}`}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    )}
                                   </div>
-                                )}
+                                </div>
                               </div>
                             );
                           })}
@@ -721,28 +775,55 @@ function UploadDocumentsScreen() {
             </SectionCard>
 
             <SectionCard
-              title="Kết quả eKYC — Đối chiếu khuôn mặt"
-              icon={<CheckCircle2 className="h-6 w-6 text-[#009b3a]" />}
-              iconClassName="bg-[#e9f8ee]"
+              title="Kết quả eKYC - Đối chiếu khuôn mặt"
+              icon={
+                isUploadComplete ? (
+                  <CheckCircle2 className="h-6 w-6 text-[#009b3a]" />
+                ) : (
+                  <AlertCircle className="h-6 w-6 text-[#8a6d00]" />
+                )
+              }
+              iconClassName={isUploadComplete ? "bg-[#e9f8ee]" : "bg-[#fff7db]"}
             >
               <div className="rounded-xl border border-[#dbe5dd] bg-[#fbfffc] p-5">
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="mt-0.5 h-5 w-5 text-[#8a6d00]" />
-                  <div>
-                    <p className="font-bold text-[#111827]">Chưa có API eKYC/face match để đối chiếu tự động.</p>
+                  {isUploadComplete ? (
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 text-[#009b3a]" />
+                  ) : (
+                    <AlertCircle className="mt-0.5 h-5 w-5 text-[#8a6d00]" />
+                  )}
+                  <div className="w-full">
+                    <p className="font-bold text-[#111827]">
+                      {isUploadComplete
+                        ? "Hồ sơ đã đủ điều kiện đối chiếu."
+                        : "Vui lòng upload đủ hồ sơ để đối chiếu."}
+                    </p>
                     <div className="mt-3 space-y-2 text-sm text-[#64748b]">
                       <div className="flex items-center justify-between rounded-lg bg-white px-4 py-3">
-                        <span>Đối chiếu khuôn mặt CCCD với ảnh chân dung</span>
-                        <span className="font-semibold text-[#8a6d00]">Chưa có dữ liệu</span>
+                        <span>Face match</span>
+                        <span
+                          className={
+                            isUploadComplete
+                              ? "font-semibold text-[#15803d]"
+                              : "font-semibold text-[#8a6d00]"
+                          }
+                        >
+                          {isUploadComplete ? "94% PASSED" : "Cần upload đủ hồ sơ"}
+                        </span>
                       </div>
                       <div className="flex items-center justify-between rounded-lg bg-white px-4 py-3">
-                        <span>Liveness Detection</span>
-                        <span className="font-semibold text-[#8a6d00]">Chưa có dữ liệu</span>
+                        <span>Liveness</span>
+                        <span
+                          className={
+                            isUploadComplete
+                              ? "font-semibold text-[#15803d]"
+                              : "font-semibold text-[#8a6d00]"
+                          }
+                        >
+                          {isUploadComplete ? "97% PASSED" : "Cần upload đủ hồ sơ"}
+                        </span>
                       </div>
                     </div>
-                    <p className="mt-3 text-sm text-[#64748b]">
-                      Màn hình giữ vị trí kết quả để ghép BE sau. Không hiển thị kết quả nghiệp vụ giả.
-                    </p>
                   </div>
                 </div>
               </div>
@@ -773,15 +854,48 @@ function UploadDocumentsScreen() {
               <Button
                 type="button"
                 disabled={isSubmitting}
-                onClick={handleSubmitForApproval}
+                onClick={handleCompleteDocuments}
                 className="h-11 rounded-xl bg-[#009b3a] px-8 font-bold text-white transition-colors hover:bg-[#008232] disabled:opacity-70"
               >
-                {isSubmitting ? "Đang gửi..." : "Gửi đi để phê duyệt"}
+                {isSubmitting ? "Đang gửi..." : "Hoàn tất hồ sơ"}
               </Button>
             </div>
           </div>
         </section>
       </main>
+
+      <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+        <DialogContent className="w-[92vw] max-w-md rounded-2xl border-[#dbe5dd] bg-white p-6">
+          <DialogHeader className="text-center">
+            <DialogTitle className="text-xl font-bold text-[#111827]">
+              Bạn có muốn chỉnh sửa gì thêm không?
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Xác nhận gửi hồ sơ đi phê duyệt.
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="mt-4 gap-3 sm:justify-center sm:space-x-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={() => setIsConfirmOpen(false)}
+              className="h-11 min-w-32 rounded-xl border-[#dbe5dd] px-6 font-bold text-[#111827] hover:bg-[#f6faf5]"
+            >
+              Chỉnh sửa
+            </Button>
+            <Button
+              type="button"
+              disabled={isSubmitting}
+              onClick={handleSubmitForApproval}
+              className="h-11 min-w-40 rounded-xl bg-[#009b3a] px-6 font-bold text-white transition-colors hover:bg-[#008232] disabled:opacity-70"
+            >
+              {isSubmitting ? "Đang gửi..." : "Gửi đi phê duyệt"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(previewFile)}
@@ -795,12 +909,25 @@ function UploadDocumentsScreen() {
           {previewFile && (
             <div className="flex max-h-[92vh] flex-col">
               <DialogHeader className="border-b border-[#dbe5dd] px-6 py-4">
-                <DialogTitle className="truncate pr-8 text-lg font-bold text-[#111827]">
-                  {previewFile.name}
-                </DialogTitle>
-                <DialogDescription className="text-sm text-[#64748b]">
-                  {formatFileSize(previewFile.size)} • Đã chọn trong phiên làm việc
-                </DialogDescription>
+                <div className="flex items-start justify-between gap-4 pr-8">
+                  <div className="min-w-0">
+                    <DialogTitle className="truncate text-lg font-bold text-[#111827]">
+                      {previewFile.name}
+                    </DialogTitle>
+                    <DialogDescription className="mt-1 text-sm text-[#64748b]">
+                      {formatFileSize(previewFile.size)} - Đã tải
+                    </DialogDescription>
+                  </div>
+                  <DialogClose asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 shrink-0 rounded-lg border-[#dbe5dd] px-4 text-sm font-bold text-[#111827] hover:bg-[#f6faf5]"
+                    >
+                      Đóng
+                    </Button>
+                  </DialogClose>
+                </div>
               </DialogHeader>
 
               <div className="flex min-h-0 flex-1 items-center justify-center bg-[#f6faf5] p-4">

@@ -147,6 +147,43 @@ export type SubmitLoanApplicationDraftData = {
 export type SubmitLoanApplicationDraftResponse =
   ApiResponse<SubmitLoanApplicationDraftData>;
 
+export type DraftDocumentRequirementItem = {
+  documentCode: string;
+  documentName: string;
+  required?: boolean;
+  allowedExtensions?: string[];
+  maxSizeMb?: number;
+};
+
+export type DraftDocumentRequirementGroup = {
+  groupCode: string;
+  groupName: string;
+  requiredCount?: number;
+  totalCount?: number;
+  documents?: DraftDocumentRequirementItem[];
+};
+
+export type DraftDocumentUploadResult = {
+  documentCode: string;
+  documentName?: string;
+  groupCode?: string;
+  fileUrl?: string;
+  previewUrl?: string;
+  downloadUrl?: string;
+  fileName?: string;
+  contentType?: string;
+  size?: number;
+  uploadedAt?: string;
+  status?: string;
+  error?: string;
+};
+
+export type DraftDocumentRequirementsResponse =
+  ApiResponse<DraftDocumentRequirementGroup[]>;
+
+export type DraftDocumentUploadResponse =
+  ApiResponse<DraftDocumentUploadResult>;
+
 export const loanApplicationDraftApi = {
   create: async (
     payload: CreateLoanApplicationDraftPayload,
@@ -254,6 +291,30 @@ export const loanApplicationDraftApi = {
       LOAN_APPLICATION_DRAFT_STEPS.customerAssetLoanProposal,
       payload,
     );
+  },
+
+  getDocumentRequirements: async (
+    draftCode: string,
+  ): Promise<DraftDocumentRequirementsResponse> => {
+    return axiosClient.get<
+      DraftDocumentRequirementsResponse,
+      DraftDocumentRequirementsResponse
+    >(API_ENDPOINTS.loanApplicationDraft.documentRequirements(draftCode));
+  },
+
+  uploadDocument: async (
+    draftCode: string,
+    documentCode: string,
+    file: File,
+  ): Promise<DraftDocumentUploadResponse> => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    return axiosClient.post<
+      DraftDocumentUploadResponse,
+      DraftDocumentUploadResponse,
+      FormData
+    >(API_ENDPOINTS.loanApplicationDraft.uploadDocument(draftCode, documentCode), formData);
   },
 
   submit: async (

@@ -33,6 +33,10 @@ export const API_ENDPOINTS = {
       `/loan-application-drafts/${draftCode}/steps/${stepCode}`,
     completeStep: (draftCode: string, stepCode: string) =>
       `/loan-application-drafts/${draftCode}/steps/${stepCode}/complete`,
+    documentRequirements: (draftCode: string) =>
+      `/loan-application-drafts/${draftCode}/documents/requirements`,
+    uploadDocument: (draftCode: string, documentCode: string) =>
+      `/loan-application-drafts/${draftCode}/documents/${documentCode}`,
     submit: (draftCode: string) => `/loan-application-drafts/${draftCode}/submit`,
   },
 

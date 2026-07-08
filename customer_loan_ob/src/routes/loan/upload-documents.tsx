@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+﻿import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -37,9 +37,7 @@ import {
 } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
 import {
   loanApplicationDraftApi,
-  type DraftDocumentRequirementGroup,
-  type DraftDocumentRequirementItem,
-  type DraftDocumentUploadResult,
+  type SubmitLoanApplicationDraftDocument,
 } from "@/features/loan-onboarding/api/loan-application-draft.api";
 
 export const Route = createFileRoute("/loan/upload-documents")({
@@ -87,75 +85,100 @@ type UploadedDocumentState = DraftDocumentUploadResult & {
 
 type PreviewFileKind = "image" | "pdf" | "video" | "other";
 
-function normalizeDocumentCode(value: string) {
-  return value.trim().toUpperCase();
-}
+const SUBMIT_DOCUMENT_CODE_BY_SLOT_ID: Record<string, string> = {
+  "cccd-front": "CITIZEN_ID_FRONT",
+  "cccd-back": "CITIZEN_ID_BACK",
+  "vehicle-registration-front": "VEHICLE_REGISTRATION_FRONT",
+  "vehicle-registration-back": "VEHICLE_REGISTRATION_BACK",
+  "asset-front": "ASSET_FRONT",
+  "asset-back": "ASSET_REAR",
+  "asset-left": "ASSET_LEFT",
+  "asset-right": "ASSET_RIGHT",
+  "frame-number": "ASSET_FRAME_NUMBER",
+  "engine-number": "ASSET_ENGINE_NUMBER",
+  odo: "ASSET_ODO",
+  portrait: "CUSTOMER_PORTRAIT",
+  "portrait-with-cccd": "BORROWER_HOLDING_CITIZEN_ID_IMAGE",
+  "portrait-video": "CUSTOMER_PORTRAIT_VIDEO",
+  "income-proof": "INCOME_PROOF",
+  "residence-proof": "RESIDENCE_PROOF_DOCUMENT",
+  "signed-contract": "CUSTOMER_SIGNED_CONTRACT",
+  "reference-verification": "REFERENCE_VERIFICATION_FORM",
+};
 
-function getApiErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
+const uploadGroups: UploadGroup[] = [
+  {
+    id: "cccd",
+    title: "CCCD",
+    maxFiles: 2,
+    slots: [
+      { id: "cccd-front", label: "CCCD mặt trước", required: true },
+      { id: "cccd-back", label: "CCCD mặt sau", required: true },
+    ],
+  },
+  {
+    id: "vehicle-registration",
+    title: "Cà vẹt xe",
+    maxFiles: 2,
+    slots: [
+      { id: "vehicle-registration-front", label: "Cà vẹt mặt trước", required: true },
+      { id: "vehicle-registration-back", label: "Cà vẹt mặt sau", required: true },
+    ],
+  },
+  {
+    id: "asset-photos",
+    title: "Ảnh tài sản",
+    maxFiles: 7,
+    slots: [
+      { id: "asset-front", label: "Ảnh xe - Góc trước", required: true },
+      { id: "asset-back", label: "Ảnh xe - Góc sau", required: true },
+      { id: "asset-left", label: "Ảnh xe - Góc trái", required: true },
+      { id: "asset-right", label: "Ảnh xe - Góc phải", required: true },
+      { id: "frame-number", label: "Ảnh số khung" },
+      { id: "engine-number", label: "Ảnh số máy" },
+      { id: "odo", label: "Ảnh đồng hồ ODO" },
+    ],
+  },
+  {
+    id: "customer-portrait",
+    title: "Chân dung Khách hàng",
+    maxFiles: 3,
+    slots: [
+      { id: "portrait", label: "Ảnh chân dung khách hàng", required: true },
+      { id: "portrait-with-cccd", label: "Ảnh chân dung cầm CCCD" },
+      {
+        id: "portrait-video",
+        label: "Video chân dung Khách hàng",
+        required: true,
+        accept: "video/mp4,video/webm,video/quicktime",
+      },
+    ],
+  },
+  {
+    id: "other-documents",
+    title: "Chứng từ khác",
+    maxFiles: 4,
+    slots: [
+      { id: "income-proof", label: "Chứng minh thu nhập" },
+      { id: "residence-proof", label: "Sổ hộ khẩu / Giấy tạm trú" },
+      { id: "signed-contract", label: "Hợp đồng có chữ ký KH" },
+      { id: "reference-verification", label: "Phiếu xác minh người tham chiếu" },
+    ],
+  },
+];
+function getStringFromRecord(source: unknown, keys: string[]) {
+  if (!source || typeof source !== "object") return "";
 
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as { message?: unknown }).message;
+  const record = source as Record<string, unknown>;
 
-    if (typeof message === "string") return message;
+  for (const key of keys) {
+    const value = record[key];
+
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number") return String(value);
   }
 
-  return "Không thể upload chứng từ.";
-}
-
-function normalizeRequirementItem(
-  item: DraftDocumentRequirementItem,
-  groupCode: string,
-): UploadRequirementItem {
-  const allowedExtensions =
-    item.allowedExtensions?.filter(Boolean).map((extension) => extension.toLowerCase()) ||
-    DEFAULT_ALLOWED_EXTENSIONS;
-
-  return {
-    documentCode: normalizeDocumentCode(item.documentCode || ""),
-    documentName: item.documentName || item.documentCode || "Chứng từ",
-    groupCode,
-    required: typeof item.required === "boolean" ? item.required : true,
-    allowedExtensions,
-    maxSizeMb: item.maxSizeMb || DEFAULT_MAX_FILE_SIZE_MB,
-  };
-}
-
-function normalizeRequirementGroups(
-  groups: DraftDocumentRequirementGroup[] | undefined,
-): UploadRequirementGroup[] {
-  return (groups || [])
-    .map((group) => {
-      const groupCode = normalizeDocumentCode(group.groupCode || "");
-      const documents = (group.documents || [])
-        .map((item) => normalizeRequirementItem(item, groupCode))
-        .filter((item) => item.documentCode);
-      const requiredCount =
-        typeof group.requiredCount === "number"
-          ? group.requiredCount
-          : documents.filter((item) => item.required).length;
-
-      return {
-        groupCode,
-        groupName: group.groupName || group.groupCode || "Nhóm chứng từ",
-        requiredCount,
-        totalCount: group.totalCount || documents.length,
-        documents,
-      };
-    })
-    .filter((group) => group.groupCode && group.documents.length > 0);
-}
-
-function getFileExtension(fileName: string) {
-  const index = fileName.lastIndexOf(".");
-
-  if (index < 0) return "";
-
-  return fileName.slice(index + 1).toLowerCase();
-}
-
-function getAcceptValue(document: UploadRequirementItem) {
-  return document.allowedExtensions.map((extension) => `.${extension}`).join(",");
+  return "";
 }
 
 function validateUploadFile(file: File, document: UploadRequirementItem) {
@@ -226,17 +249,50 @@ function toUploadedDocumentState(
   const uploadedAt = result?.uploadedAt || new Date().toISOString();
 
   return {
-    ...result,
-    id: `${documentCode}-${uploadedAt}-${result?.fileName || file.name}`,
-    documentCode,
-    documentName: result?.documentName || document.documentName,
-    groupCode: normalizeDocumentCode(result?.groupCode || document.groupCode),
-    fileName: result?.fileName || file.name,
-    contentType: result?.contentType || file.type,
-    size: result?.size || file.size,
-    uploadedAt,
-    localPreviewUrl: URL.createObjectURL(file),
+    id: `${groupId}-${documentType}-${file.name}-${file.lastModified}`,
+    groupId,
+    documentType,
+    required,
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    uploadedAt: new Date().toISOString(),
+    file,
+    previewUrl: URL.createObjectURL(file),
   };
+}
+
+function toSubmitDocumentCode(documentType: string) {
+  return SUBMIT_DOCUMENT_CODE_BY_SLOT_ID[documentType] || documentType.trim().toUpperCase();
+}
+
+function buildSubmitDocuments(
+  documentsByGroup: Record<string, LocalDocumentFile[]>,
+): SubmitLoanApplicationDraftDocument[] {
+  return Object.values(documentsByGroup)
+    .flat()
+    .map((document) => ({
+      documentTypeCode: toSubmitDocumentCode(document.documentType),
+      fileUrl: document.previewUrl,
+      fileName: document.name,
+    }));
+}
+
+function hasRequiredStepData(
+  step1: Step1CustomerIdentifyState,
+  step2: Step2PreliminaryInfoState,
+  step3: CustomerAssetDetailState | null,
+) {
+  return Boolean(
+    step1.fullName &&
+      step1.identityNumber &&
+      step1.phoneNumber &&
+      step2.loanPurpose &&
+      step2.desiredLoanAmount &&
+      step2.term &&
+      step3?.fullName &&
+      step3.assetData.vehicleVariant,
+  );
 }
 
 function UploadDocumentsScreen() {

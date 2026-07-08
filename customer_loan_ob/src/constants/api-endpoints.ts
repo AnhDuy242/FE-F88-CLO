@@ -7,6 +7,7 @@ export const API_ENDPOINTS = {
 
   loanApplication: {
     createDraft: "/loan-applications",
+    list: "/loan-applications",
     detail: (applicationCode: string) => `/loan-applications/${applicationCode}`,
     saveDraft: (applicationCode: string) =>
       `/loan-applications/${applicationCode}/draft`,
@@ -27,16 +28,12 @@ export const API_ENDPOINTS = {
   },
 
   loanApplicationDraft: {
-    create: "/loan-application-drafts",
-    overview: (draftCode: string) => `/loan-application-drafts/${draftCode}`,
+    create: "/loan-applications/onboarding",
+    overview: (draftCode: string) => `/loan-applications/onboarding/${draftCode}`,
     step: (draftCode: string, stepCode: string) =>
-      `/loan-application-drafts/${draftCode}/steps/${stepCode}`,
+      `/loan-applications/onboarding/${draftCode}/steps/${stepCode}`,
     completeStep: (draftCode: string, stepCode: string) =>
       `/loan-application-drafts/${draftCode}/steps/${stepCode}/complete`,
-    documentRequirements: (draftCode: string) =>
-      `/loan-application-drafts/${draftCode}/documents/requirements`,
-    uploadDocument: (draftCode: string, documentCode: string) =>
-      `/loan-application-drafts/${draftCode}/documents/${documentCode}`,
     submit: (draftCode: string) => `/loan-application-drafts/${draftCode}/submit`,
   },
 

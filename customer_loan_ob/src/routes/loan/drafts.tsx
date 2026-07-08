@@ -48,6 +48,12 @@ function formatDateTime(value?: string | null) {
 }
 
 function statusLabel(status?: string) {
+  if (status === "APP_CREATED") return "Mới tạo";
+  if (status === "APP_IN_PROGRESS") return "Đang hoàn thiện";
+  if (status === "APP_COMPLETED") return "Đã hoàn thiện";
+  if (status === "APP_SUBMITTED") return "Đã nộp hồ sơ";
+  if (status === "APP_CANCELLED") return "Đã hủy";
+  if (status === "APP_EXPIRED") return "Hết hạn";
   if (status === "DRAFT") return "Đang nháp";
   if (status === "COMPLETED") return "Đã hoàn tất nháp";
   if (status === "CONVERTED") return "Đã tạo hồ sơ vay";
@@ -132,13 +138,14 @@ function LoanDraftsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [resumingDraftCode, setResumingDraftCode] = useState("");
+  const onboardingStates = new Set(["APP_CREATED", "APP_IN_PROGRESS", "APP_COMPLETED"]);
 
   const loadDrafts = async () => {
     setIsLoading(true);
     setErrorMessage("");
 
     try {
-      const response = await loanApplicationDraftApi.list("DRAFT");
+      const response = await loanApplicationDraftApi.list();
 
       if (!response.success || !response.data) {
         throw new Error(
@@ -146,7 +153,12 @@ function LoanDraftsScreen() {
         );
       }
 
-      setDrafts(response.data);
+      setDrafts(
+        response.data.filter(
+          (draft) =>
+            draft.applicationState && onboardingStates.has(draft.applicationState),
+        ),
+      );
     } catch (error) {
       const message =
         error && typeof error === "object" && "message" in error
@@ -275,7 +287,7 @@ function LoanDraftsScreen() {
                         variant="outline"
                         className="border-[#b7e4c7] bg-[#e8f8ee] text-[#008232]"
                       >
-                        {statusLabel(draft.status)}
+                        {statusLabel(draft.applicationState || draft.status)}
                       </Badge>
                     </TableCell>
                     <TableCell>{formatDateTime(draft.updatedAt)}</TableCell>

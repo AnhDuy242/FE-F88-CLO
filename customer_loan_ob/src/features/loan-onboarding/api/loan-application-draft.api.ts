@@ -37,7 +37,10 @@ export type LoanApplicationDraftCustomer = {
 
 export type LoanApplicationDraftStatus =
   | "DRAFT"
+  | "CREATED"
+  | "IN_PROGRESS"
   | "COMPLETED"
+  | "SUBMITTED"
   | "CONVERTED"
   | "CANCELLED"
   | "EXPIRED";
@@ -62,7 +65,9 @@ export type LoanApplicationDraftStep = {
 };
 
 export type LoanApplicationDraftOverview = {
-  draftId: string;
+  draftId?: string;
+  applicationId?: string;
+  applicationCode?: string;
   draftCode?: string;
   customerId?: string;
   customer?: LoanApplicationDraftCustomer;
@@ -79,6 +84,8 @@ export type LoanApplicationDraftOverview = {
 
 export type LoanApplicationDraftSummary = {
   draftCode: string;
+  applicationCode?: string;
+  applicationState?: string;
   status?: LoanApplicationDraftStatus | string;
   customerCode?: string;
   customerName?: string;
@@ -103,7 +110,8 @@ export type SaveLoanApplicationDraftStepPayload = {
 };
 
 export type SaveLoanApplicationDraftStepData = {
-  draftCode: string;
+  draftCode?: string;
+  applicationCode?: string;
   stepCode: string;
   stepStatus?: string;
   currentStepCode?: string;
@@ -133,9 +141,32 @@ export type SubmitLoanApplicationDraftDocument = {
   fileName: string;
 };
 
-export type SubmitLoanApplicationDraftPayload = {
-  documents: SubmitLoanApplicationDraftDocument[];
+export type UploadLoanApplicationDraftDocument = {
+  documentTypeCode: string;
+  file: File;
 };
+
+export type SubmitLoanApplicationDraftPayload = {
+  documents: UploadLoanApplicationDraftDocument[];
+};
+
+export type UploadedLoanApplicationDocument = {
+  documentId?: string;
+  documentTypeCode: string;
+  documentTypeName?: string;
+  fileUrl: string;
+  fileName: string;
+  uploadedAt?: string;
+};
+
+export type UploadLoanApplicationDraftDocumentsData = {
+  applicationCode?: string;
+  uploadedCount?: number;
+  documents: UploadedLoanApplicationDocument[];
+};
+
+export type UploadLoanApplicationDraftDocumentsResponse =
+  ApiResponse<UploadLoanApplicationDraftDocumentsData>;
 
 export type SubmitLoanApplicationDraftData = {
   draftCode?: string;
@@ -147,72 +178,43 @@ export type SubmitLoanApplicationDraftData = {
 export type SubmitLoanApplicationDraftResponse =
   ApiResponse<SubmitLoanApplicationDraftData>;
 
-export type DraftDocumentRequirementItem = {
-  documentCode: string;
-  documentName: string;
-  required?: boolean;
-  allowedExtensions?: string[];
-  maxSizeMb?: number;
-};
-
-export type DraftDocumentRequirementGroup = {
-  groupCode: string;
-  groupName: string;
-  requiredCount?: number;
-  totalCount?: number;
-  documents?: DraftDocumentRequirementItem[];
-};
-
-export type DraftDocumentUploadResult = {
-  documentCode: string;
-  documentName?: string;
-  groupCode?: string;
-  fileUrl?: string;
-  previewUrl?: string;
-  downloadUrl?: string;
-  fileName?: string;
-  contentType?: string;
-  size?: number;
-  uploadedAt?: string;
-  status?: string;
-  error?: string;
-};
-
-export type DraftDocumentRequirementsResponse =
-  ApiResponse<DraftDocumentRequirementGroup[]>;
-
-export type DraftDocumentUploadResponse =
-  ApiResponse<DraftDocumentUploadResult>;
-
 export const loanApplicationDraftApi = {
   create: async (
     payload: CreateLoanApplicationDraftPayload,
   ): Promise<LoanApplicationDraftOverviewResponse> => {
-    return axiosClient.post<
+    const response = await axiosClient.post<
       LoanApplicationDraftOverviewResponse,
       LoanApplicationDraftOverviewResponse,
       CreateLoanApplicationDraftPayload
     >(API_ENDPOINTS.loanApplicationDraft.create, payload);
+
+    return normalizeOverviewResponse(response);
   },
 
   getOverview: async (
     draftCode: string,
   ): Promise<LoanApplicationDraftOverviewResponse> => {
-    return axiosClient.get<
+    const response = await axiosClient.get<
       LoanApplicationDraftOverviewResponse,
       LoanApplicationDraftOverviewResponse
     >(API_ENDPOINTS.loanApplicationDraft.overview(draftCode));
+
+    return normalizeOverviewResponse(response);
   },
 
   list: async (
     status?: LoanApplicationDraftStatus,
   ): Promise<LoanApplicationDraftListResponse> => {
-    return axiosClient.get<
+    const onboardingStatus = status === "DRAFT" ? undefined : status;
+
+    const response = await axiosClient.get<
       LoanApplicationDraftListResponse,
       LoanApplicationDraftListResponse
     >(API_ENDPOINTS.loanApplicationDraft.create, {
-      params: status ? { status } : undefined,
+      params: onboardingStatus ? { status: onboardingStatus } : undefined,
     });
+
+    return normalizeListResponse(response);
   },
 
   getStepPayload: async (
@@ -230,11 +232,15 @@ export const loanApplicationDraftApi = {
     stepCode: LoanApplicationDraftStepCode,
     payload: SaveLoanApplicationDraftStepPayload,
   ): Promise<SaveLoanApplicationDraftStepResponse> => {
-    return axiosClient.put<
+    const response = await axiosClient.post<
       SaveLoanApplicationDraftStepResponse,
       SaveLoanApplicationDraftStepResponse,
-      SaveLoanApplicationDraftStepPayload
-    >(API_ENDPOINTS.loanApplicationDraft.step(draftCode, stepCode), payload);
+      CompleteLoanApplicationDraftStepPayload
+    >(API_ENDPOINTS.loanApplicationDraft.completeStep(draftCode, stepCode), {
+      payload: payload.payload,
+    });
+
+    return normalizeStepActionResponse(response);
   },
 
   completeStep: async (
@@ -242,11 +248,13 @@ export const loanApplicationDraftApi = {
     stepCode: LoanApplicationDraftStepCode,
     payload: CompleteLoanApplicationDraftStepPayload,
   ): Promise<SaveLoanApplicationDraftStepResponse> => {
-    return axiosClient.post<
+    const response = await axiosClient.post<
       SaveLoanApplicationDraftStepResponse,
       SaveLoanApplicationDraftStepResponse,
       CompleteLoanApplicationDraftStepPayload
     >(API_ENDPOINTS.loanApplicationDraft.completeStep(draftCode, stepCode), payload);
+
+    return normalizeStepActionResponse(response);
   },
 
   savePreliminaryInfo: async (
@@ -321,10 +329,44 @@ export const loanApplicationDraftApi = {
     draftCode: string,
     payload: SubmitLoanApplicationDraftPayload,
   ): Promise<SubmitLoanApplicationDraftResponse> => {
+    const uploadResponse = await loanApplicationDraftApi.uploadDocuments(
+      draftCode,
+      payload.documents,
+    );
+    const uploadedDocuments = uploadResponse.data?.documents || [];
+
+    await loanApplicationDraftApi.completeStep(
+      draftCode,
+      LOAN_APPLICATION_DRAFT_STEPS.uploadComplete,
+      { payload: { documents: uploadedDocuments } },
+    );
+
+    const response = await axiosClient.post<
+      SubmitLoanApplicationDraftResponse,
+      SubmitLoanApplicationDraftResponse,
+      { documents: UploadedLoanApplicationDocument[] }
+    >(API_ENDPOINTS.loanApplicationDraft.submit(draftCode), {
+      documents: uploadedDocuments,
+    });
+
+    return normalizeSubmitResponse(response);
+  },
+
+  uploadDocuments: async (
+    draftCode: string,
+    documents: UploadLoanApplicationDraftDocument[],
+  ): Promise<UploadLoanApplicationDraftDocumentsResponse> => {
+    const formData = new FormData();
+
+    documents.forEach((document) => {
+      formData.append("documentTypeCodes", document.documentTypeCode);
+      formData.append("files", document.file);
+    });
+
     return axiosClient.post<
-      SubmitLoanApplicationDraftResponse,
-      SubmitLoanApplicationDraftResponse,
-      SubmitLoanApplicationDraftPayload
-    >(API_ENDPOINTS.loanApplicationDraft.submit(draftCode), payload);
+      UploadLoanApplicationDraftDocumentsResponse,
+      UploadLoanApplicationDraftDocumentsResponse,
+      FormData
+    >(API_ENDPOINTS.loanApplicationDraft.documents(draftCode), formData);
   },
 };

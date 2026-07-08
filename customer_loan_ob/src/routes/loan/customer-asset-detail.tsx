@@ -992,10 +992,20 @@ function CustomerAssetDetailScreen() {
           products.find((item) => item.recommended)?.productCode ||
           products[0]?.productCode ||
           "";
+        const persistedSelectedCode =
+          selectedProductCode ||
+          form.getValues("selectedLoanProductCode") ||
+          step2PreliminaryInfo.selectedProductCode ||
+          getStringFromUnknownObject(selectedLoanProductData, ["productCode"]);
+        const nextSelectedProductCode =
+          persistedSelectedCode &&
+          products.some((item) => item.productCode === persistedSelectedCode)
+            ? persistedSelectedCode
+            : nextRecommendedCode;
 
         setRecommendedProducts(products);
         setRecommendedProductCode(nextRecommendedCode);
-        setSelectedProductCode((current) => current || nextRecommendedCode);
+        setSelectedProductCode(nextSelectedProductCode);
         setLoanRecommendation(
           recommendationResponse.data
             ? {
@@ -1040,6 +1050,9 @@ function CustomerAssetDetailScreen() {
     watchedVehicleColor,
     watchedVehicleVariant,
     creditScoring?.scoreGrade,
+    selectedProductCode,
+    selectedLoanProductData,
+    form,
   ]);
 
   const buildStep3Data = (

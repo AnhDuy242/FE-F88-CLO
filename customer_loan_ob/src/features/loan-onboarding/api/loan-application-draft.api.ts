@@ -148,6 +148,7 @@ export type UploadLoanApplicationDraftDocument = {
 
 export type SubmitLoanApplicationDraftPayload = {
   documents: UploadLoanApplicationDraftDocument[];
+  uploadedBy?: string;
 };
 
 export type UploadedLoanApplicationDocument = {
@@ -172,11 +173,102 @@ export type SubmitLoanApplicationDraftData = {
   draftCode?: string;
   status?: string;
   applicationCode?: string | null;
+  loanApplicationCode?: string | null;
   message?: string;
 };
 
 export type SubmitLoanApplicationDraftResponse =
   ApiResponse<SubmitLoanApplicationDraftData>;
+
+function normalizeOverviewResponse(
+  response: LoanApplicationDraftOverviewResponse,
+): LoanApplicationDraftOverviewResponse {
+  const data = response.data;
+
+  if (!data) {
+    return response;
+  }
+
+  const applicationCode = data.applicationCode || data.draftCode || "";
+
+  return {
+    ...response,
+    data: {
+      ...data,
+      draftId: data.draftId || data.applicationId || applicationCode,
+      draftCode: data.draftCode || applicationCode,
+      applicationCode,
+      convertedLoanApplicationCode:
+        data.convertedLoanApplicationCode || applicationCode || null,
+    },
+  };
+}
+
+function normalizeStepActionResponse(
+  response: SaveLoanApplicationDraftStepResponse,
+): SaveLoanApplicationDraftStepResponse {
+  const data = response.data;
+
+  if (!data) {
+    return response;
+  }
+
+  const applicationCode = data.applicationCode || data.draftCode || "";
+
+  return {
+    ...response,
+    data: {
+      ...data,
+      draftCode: data.draftCode || applicationCode,
+      applicationCode,
+    },
+  };
+}
+
+function normalizeSubmitResponse(
+  response: SubmitLoanApplicationDraftResponse,
+): SubmitLoanApplicationDraftResponse {
+  const data = response.data;
+
+  if (!data) {
+    return response;
+  }
+
+  const applicationCode =
+    data.applicationCode || data.loanApplicationCode || data.draftCode || "";
+
+  return {
+    ...response,
+    data: {
+      ...data,
+      draftCode: data.draftCode || applicationCode,
+      applicationCode,
+    },
+  };
+}
+
+function normalizeListResponse(
+  response: LoanApplicationDraftListResponse,
+): LoanApplicationDraftListResponse {
+  const data = response.data;
+
+  if (!data) {
+    return response;
+  }
+
+  return {
+    ...response,
+    data: data.map((item) => {
+      const applicationCode = item.applicationCode || item.draftCode || "";
+
+      return {
+        ...item,
+        applicationCode,
+        draftCode: item.draftCode || applicationCode,
+      };
+    }),
+  };
+}
 
 export const loanApplicationDraftApi = {
   create: async (
@@ -308,6 +400,7 @@ export const loanApplicationDraftApi = {
     const uploadResponse = await loanApplicationDraftApi.uploadDocuments(
       draftCode,
       payload.documents,
+      payload.uploadedBy,
     );
     const uploadedDocuments = uploadResponse.data?.documents || [];
 
@@ -331,6 +424,7 @@ export const loanApplicationDraftApi = {
   uploadDocuments: async (
     draftCode: string,
     documents: UploadLoanApplicationDraftDocument[],
+    uploadedBy?: string,
   ): Promise<UploadLoanApplicationDraftDocumentsResponse> => {
     const formData = new FormData();
 
@@ -338,6 +432,10 @@ export const loanApplicationDraftApi = {
       formData.append("documentTypeCodes", document.documentTypeCode);
       formData.append("files", document.file);
     });
+
+    if (uploadedBy) {
+      formData.append("uploadedBy", uploadedBy);
+    }
 
     return axiosClient.post<
       UploadLoanApplicationDraftDocumentsResponse,

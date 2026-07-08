@@ -1,0 +1,7 @@
+services:
+  frontend:
+    build:
+      context: E:/F88/FE-F88-CLO/customer_loan_ob
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api/v1}

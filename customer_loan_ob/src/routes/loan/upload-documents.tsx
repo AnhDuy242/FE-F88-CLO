@@ -39,7 +39,6 @@ import {
 } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
 import {
   loanApplicationDraftApi,
-  type SubmitLoanApplicationDraftDocument,
   type UploadLoanApplicationDraftDocument,
 } from "@/features/loan-onboarding/api/loan-application-draft.api";
 

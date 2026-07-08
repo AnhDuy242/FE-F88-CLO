@@ -1085,6 +1085,14 @@ function PreliminaryInfoScreen() {
     );
   }, [recommendedProducts, selectedProductCode]);
 
+  const handleSelectProduct = (productCode: string) => {
+    setSelectedProductCode(productCode);
+    setSelectedLoanProduct(
+      recommendedProducts.find((product) => product.productCode === productCode) ||
+        null,
+    );
+  };
+
   const marketValue = useMemo(() => {
     return (
       getNumberFromUnknownObject(previewData, ["marketValue"]) ||
@@ -1670,22 +1678,19 @@ function PreliminaryInfoScreen() {
         setLoanRecommendation((response.data || response) as Record<string, unknown>);
         setRecommendedProducts(products);
 
-        const nextSelectedProductCode =
+        const fallbackSelectedProductCode =
           response.data?.recommendedProductCode ||
           products.find((item) => item.recommended)?.productCode ||
           products[0]?.productCode ||
           "";
 
-        setSelectedProductCode((current) => {
-          if (
-            current &&
-            products.some((item) => item.productCode === current)
-          ) {
-            return current;
-          }
+        const nextSelectedProductCode =
+          selectedProductCode &&
+          products.some((item) => item.productCode === selectedProductCode)
+            ? selectedProductCode
+            : fallbackSelectedProductCode;
 
-          return nextSelectedProductCode;
-        });
+        setSelectedProductCode(nextSelectedProductCode);
 
         const selectedProduct =
           products.find(
@@ -1723,6 +1728,7 @@ function PreliminaryInfoScreen() {
     watchedTerm,
     watchedDesiredLoanAmount,
     valueAfterDeduction,
+    selectedProductCode,
     setLoanRecommendation,
     setSelectedLoanProduct,
   ]);
@@ -2209,7 +2215,7 @@ function PreliminaryInfoScreen() {
                   )}
                   isLoading={isLoanRecommendationLoading}
                   error={loanRecommendationError}
-                  onSelectProduct={setSelectedProductCode}
+                  onSelectProduct={handleSelectProduct}
                 />
               </SectionCard>
 

@@ -301,30 +301,6 @@ export const loanApplicationDraftApi = {
     );
   },
 
-  getDocumentRequirements: async (
-    draftCode: string,
-  ): Promise<DraftDocumentRequirementsResponse> => {
-    return axiosClient.get<
-      DraftDocumentRequirementsResponse,
-      DraftDocumentRequirementsResponse
-    >(API_ENDPOINTS.loanApplicationDraft.documentRequirements(draftCode));
-  },
-
-  uploadDocument: async (
-    draftCode: string,
-    documentCode: string,
-    file: File,
-  ): Promise<DraftDocumentUploadResponse> => {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    return axiosClient.post<
-      DraftDocumentUploadResponse,
-      DraftDocumentUploadResponse,
-      FormData
-    >(API_ENDPOINTS.loanApplicationDraft.uploadDocument(draftCode, documentCode), formData);
-  },
-
   submit: async (
     draftCode: string,
     payload: SubmitLoanApplicationDraftPayload,

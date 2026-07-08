@@ -4,9 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  Eye,
   FileText,
-  FolderOpen,
-  Loader2,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -21,7 +20,6 @@ import {
 } from "@/components/ui/accordion";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -33,6 +31,10 @@ import { LoanOnboardingStepper } from "@/features/customer-identify/components/L
 import { SectionCard } from "@/features/preliminary-info/components/SectionCard";
 import {
   useLoanOnboardingStore,
+  type CustomerAssetDetailState,
+  type ReferencePersonState,
+  type Step1CustomerIdentifyState,
+  type Step2PreliminaryInfoState,
   type UploadedDocumentMeta,
 } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
 import {
@@ -45,42 +47,34 @@ export const Route = createFileRoute("/loan/upload-documents")({
 });
 
 const CURRENT_STEP = 4;
-const DEFAULT_MAX_FILE_SIZE_MB = 5;
-const DEFAULT_ALLOWED_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "pdf"];
-const EKYC_REQUIRED_DOCUMENT_CODES = [
-  "CITIZEN_ID_FRONT",
-  "CITIZEN_ID_BACK",
-  "CUSTOMER_PORTRAIT",
-  "CUSTOMER_PORTRAIT_VIDEO",
-] as const;
+const MAX_UPLOAD_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_UPLOAD_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+]);
 
-type UploadRequirementItem = {
-  documentCode: string;
-  documentName: string;
-  groupCode: string;
-  required: boolean;
-  allowedExtensions: string[];
-  maxSizeMb: number;
-};
-
-type UploadRequirementGroup = {
-  groupCode: string;
-  groupName: string;
-  requiredCount: number;
-  totalCount: number;
-  documents: UploadRequirementItem[];
-};
-
-type UploadedDocumentState = DraftDocumentUploadResult & {
+type UploadSlot = {
   id: string;
-  documentCode: string;
-  documentName: string;
-  groupCode: string;
-  fileName: string;
-  contentType: string;
-  size: number;
-  uploadedAt: string;
-  localPreviewUrl?: string;
+  label: string;
+  required?: boolean;
+  accept?: string;
+};
+
+type UploadGroup = {
+  id: string;
+  title: string;
+  maxFiles: number;
+  slots?: UploadSlot[];
+};
+
+type LocalDocumentFile = UploadedDocumentMeta & {
+  file: File;
+  previewUrl: string;
 };
 
 type PreviewFileKind = "image" | "pdf" | "video" | "other";
@@ -181,30 +175,16 @@ function getStringFromRecord(source: unknown, keys: string[]) {
   return "";
 }
 
-function validateUploadFile(file: File, document: UploadRequirementItem) {
-  const extension = getFileExtension(file.name);
-
-  if (!extension || !document.allowedExtensions.includes(extension)) {
-    return `Định dạng file không hợp lệ. Chỉ hỗ trợ: ${document.allowedExtensions.join(", ")}.`;
+function validateUploadFile(file: File) {
+  if (!ALLOWED_UPLOAD_MIME_TYPES.has(file.type)) {
+    return "File upload chỉ hỗ trợ JPG, PNG, WEBP, PDF hoặc video MP4/WEBM/MOV.";
   }
 
-  const maxSizeBytes = document.maxSizeMb * 1024 * 1024;
-
-  if (file.size > maxSizeBytes) {
-    return `Dung lượng file tối đa là ${document.maxSizeMb}MB.`;
+  if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
+    return "Dung lượng file tối đa là 10MB.";
   }
 
   return "";
-}
-
-function formatFileSize(size?: number) {
-  if (!size || size <= 0) return "Không rõ dung lượng";
-
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-
-  return `${(size / 1024 / 1024).toFixed(2)} MB`;
 }
 
 function getPreviewFileKind(type?: string, name?: string): PreviewFileKind {
@@ -220,34 +200,41 @@ function getPreviewFileKind(type?: string, name?: string): PreviewFileKind {
   return "other";
 }
 
-function isLocalFileSystemPath(url?: string) {
-  if (!url) return false;
+function formatFileSize(size?: number) {
+  if (!size || size <= 0) return "Khong ro dung luong";
 
-  return /^[a-zA-Z]:[\\/]/.test(url) || url.startsWith("/tmp/") || url.startsWith("\\");
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(size / 1024 / 1024).toFixed(2)} MB`;
 }
 
-function getBrowserPreviewUrl(file: UploadedDocumentState) {
-  const apiUrl = file.previewUrl || file.fileUrl || file.downloadUrl;
-
-  if (apiUrl && !isLocalFileSystemPath(apiUrl)) return apiUrl;
-
-  return file.localPreviewUrl || apiUrl || "";
-}
-
-function revokeLocalPreviewUrl(file?: UploadedDocumentState | null) {
-  if (file?.localPreviewUrl) {
-    URL.revokeObjectURL(file.localPreviewUrl);
+function revokePreviewUrl(file?: LocalDocumentFile | null) {
+  if (file?.previewUrl) {
+    URL.revokeObjectURL(file.previewUrl);
   }
 }
 
-function toUploadedDocumentState(
-  result: DraftDocumentUploadResult | undefined,
-  file: File,
-  document: UploadRequirementItem,
-): UploadedDocumentState {
-  const documentCode = normalizeDocumentCode(result?.documentCode || document.documentCode);
-  const uploadedAt = result?.uploadedAt || new Date().toISOString();
+function getCompleteReferencePersons(references: ReferencePersonState[]) {
+  return references.filter(
+    (item) => item.fullName.trim() && item.relationshipType.trim() && item.phoneNumber.trim(),
+  );
+}
 
+function getApiErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+
+    if (typeof message === "string") return message;
+  }
+
+  return "Không thể gửi hồ sơ phê duyệt.";
+}
+
+function buildDocumentMeta(file: File, groupId: string, documentType: string, required: boolean): LocalDocumentFile {
   return {
     id: `${groupId}-${documentType}-${file.name}-${file.lastModified}`,
     groupId,
@@ -298,280 +285,263 @@ function hasRequiredStepData(
 function UploadDocumentsScreen() {
   const navigate = useNavigate();
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const uploadedByCodeRef = useRef<Record<string, UploadedDocumentState>>({});
+  const documentsByGroupRef = useRef<Record<string, LocalDocumentFile[]>>({});
 
   const {
     draftCode,
+    step1CustomerIdentify,
+    step2PreliminaryInfo,
+    customerAssetDetailData,
+    assetData,
+    references,
+    selectedLoanProduct,
+    loanRecommendation,
+    setApplicationCode,
     setCurrentStep,
     setUploadedDocuments,
   } = useLoanOnboardingStore();
 
-  const [requirementGroups, setRequirementGroups] = useState<UploadRequirementGroup[]>([]);
-  const [uploadedByCode, setUploadedByCode] = useState<Record<string, UploadedDocumentState>>({});
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [uploadingCode, setUploadingCode] = useState("");
-  const [previewFile, setPreviewFile] = useState<UploadedDocumentState | null>(null);
-  const [isLoadingRequirements, setIsLoadingRequirements] = useState(false);
-  const [requirementsError, setRequirementsError] = useState("");
-  const [isDocumentsCompleted, setIsDocumentsCompleted] = useState(false);
+  const [documentsByGroup, setDocumentsByGroup] = useState<Record<string, LocalDocumentFile[]>>({});
+  const [previewFile, setPreviewFile] = useState<LocalDocumentFile | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [submitMessage, setSubmitMessage] = useState("");
-  const [openGroupCodes, setOpenGroupCodes] = useState<string[]>([]);
 
   useEffect(() => {
-    uploadedByCodeRef.current = uploadedByCode;
-  }, [uploadedByCode]);
+    documentsByGroupRef.current = documentsByGroup;
+  }, [documentsByGroup]);
+
+  const step3Data = customerAssetDetailData;
+  const finalAssetData = step3Data?.assetData || assetData;
+  const finalReferences = step3Data?.references?.length ? step3Data.references : references;
+
+  const uploadedDocumentMetadata = useMemo<UploadedDocumentMeta[]>(() => {
+    return Object.values(documentsByGroup)
+      .flat()
+      .map(({ file: _file, previewUrl: _previewUrl, ...meta }) => meta);
+  }, [documentsByGroup]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(documentsByGroupRef.current)
+        .flat()
+        .forEach(revokePreviewUrl);
+    };
+  }, []);
 
   useEffect(() => {
     setCurrentStep(CURRENT_STEP);
   }, [setCurrentStep]);
 
   useEffect(() => {
-    return () => {
-      Object.values(uploadedByCodeRef.current).forEach(revokeLocalPreviewUrl);
-    };
-  }, []);
-
-  useEffect(() => {
-    const uploadedDocumentMetadata: UploadedDocumentMeta[] = Object.values(uploadedByCode).map(
-      (document) => ({
-        id: document.id,
-        groupId: document.groupCode,
-        documentType: document.documentCode,
-        required:
-          requirementGroups
-            .flatMap((group) => group.documents)
-            .find((item) => item.documentCode === document.documentCode)?.required || false,
-        name: document.fileName,
-        size: document.size,
-        type: document.contentType,
-        uploadedAt: document.uploadedAt,
-      }),
-    );
-
-    setUploadedDocuments(uploadedDocumentMetadata);
-  }, [requirementGroups, setUploadedDocuments, uploadedByCode]);
-
-  useEffect(() => {
-    if (!draftCode) {
-      setRequirementsError("Thiếu mã hồ sơ vay nháp. Vui lòng quay lại bước trước.");
-      setRequirementGroups([]);
-      return;
-    }
-
-    let ignore = false;
-
-    async function loadRequirements() {
-      setIsLoadingRequirements(true);
-      setRequirementsError("");
-
-      try {
-        const response = await loanApplicationDraftApi.getDocumentRequirements(draftCode);
-
-        if (response.success === false) {
-          throw new Error(response.message || "Không lấy được danh mục chứng từ.");
-        }
-
-        if (!ignore) {
-          const nextGroups = normalizeRequirementGroups(response.data);
-
-          setRequirementGroups(nextGroups);
-          setOpenGroupCodes(nextGroups.map((group) => group.groupCode));
-        }
-      } catch (error) {
-        const message = getApiErrorMessage(error);
-
-        if (!ignore) {
-          setRequirementsError(message);
-          toast.error(message);
-        }
-      } finally {
-        if (!ignore) {
-          setIsLoadingRequirements(false);
-        }
-      }
-    }
-
-    void loadRequirements();
+    const timer = setTimeout(() => {
+      setUploadedDocuments(uploadedDocumentMetadata);
+    }, 300);
 
     return () => {
-      ignore = true;
+      clearTimeout(timer);
     };
-  }, [draftCode]);
+  }, [setUploadedDocuments, uploadedDocumentMetadata]);
 
-  const requiredDocuments = useMemo(() => {
-    return requirementGroups.flatMap((group) => group.documents).filter((document) => document.required);
-  }, [requirementGroups]);
-
-  const missingRequiredDocuments = useMemo(() => {
-    return requiredDocuments.filter((document) => !uploadedByCode[document.documentCode]);
-  }, [requiredDocuments, uploadedByCode]);
-
-  useEffect(() => {
-    if (missingRequiredDocuments.length > 0) {
-      setIsDocumentsCompleted(false);
-    }
-  }, [missingRequiredDocuments.length]);
-
-  const isEkycReady = EKYC_REQUIRED_DOCUMENT_CODES.every((documentCode) =>
-    Boolean(uploadedByCode[documentCode]),
-  );
+  const selectedProductCode =
+    step3Data?.selectedLoanProductCode ||
+    getStringFromRecord(selectedLoanProduct, ["productCode"]) ||
+    getStringFromRecord(loanRecommendation, ["recommendedProductCode"]);
 
   const handleBack = () => {
     setCurrentStep(3);
     navigate({ to: "/loan/customer-asset-detail" });
   };
 
-  const updateUploadedDocument = (document: UploadedDocumentState) => {
-    setUploadedByCode((current) => {
-      const previousDocument = current[document.documentCode];
+  const handleFilesChange = (group: UploadGroup, slot?: UploadSlot) => {
+    return (event: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files || []);
 
-      revokeLocalPreviewUrl(previousDocument);
+      if (files.length === 0) return;
 
-      if (previewFile?.documentCode === document.documentCode) {
-        setPreviewFile(document);
+      const invalidFileMessage = files
+        .map(validateUploadFile)
+        .find((message) => Boolean(message));
+
+      if (invalidFileMessage) {
+        toast.error(invalidFileMessage);
+        event.target.value = "";
+        return;
+      }
+
+      const currentItems = documentsByGroup[group.id] || [];
+      const currentItemsForLimit = slot
+        ? currentItems.filter((item) => item.documentType !== slot.id)
+        : currentItems;
+      const remainingSlots = Math.max(group.maxFiles - currentItemsForLimit.length, 0);
+
+      if (remainingSlots <= 0) {
+        toast.error(`Nhóm ${group.title} đã đạt tối đa ${group.maxFiles} file.`);
+        event.target.value = "";
+        return;
+      }
+
+      setDocumentsByGroup((current) => {
+        const latestItems = current[group.id] || [];
+        const replacedItems = slot
+          ? latestItems.filter((item) => item.documentType === slot.id)
+          : [];
+        const baseItems = slot
+          ? latestItems.filter((item) => item.documentType !== slot.id)
+          : latestItems;
+        const latestRemainingSlots = Math.max(group.maxFiles - baseItems.length, 0);
+        const nextFiles = slot ? files.slice(0, 1) : files;
+        const nextItems = nextFiles
+          .slice(0, latestRemainingSlots)
+          .map((file) =>
+            buildDocumentMeta(
+              file,
+              group.id,
+              slot?.id || `${group.id}-${baseItems.length + 1}`,
+              Boolean(slot?.required),
+            ),
+          );
+
+        if (
+          previewFile &&
+          replacedItems.some((item) => item.id === previewFile.id)
+        ) {
+          setPreviewFile(null);
+        }
+
+        replacedItems.forEach(revokePreviewUrl);
+
+        return {
+          ...current,
+          [group.id]: [...baseItems, ...nextItems],
+        };
+      });
+      toast.success("Đã thêm file chứng từ vào phiên làm việc.");
+
+      event.target.value = "";
+    };
+  };
+
+  const removeDocument = (groupId: string, documentId: string) => {
+    setDocumentsByGroup((current) => {
+      const removedDocument = (current[groupId] || []).find(
+        (item) => item.id === documentId,
+      );
+
+      revokePreviewUrl(removedDocument);
+
+      if (previewFile?.id === documentId) {
+        setPreviewFile(null);
       }
 
       return {
         ...current,
-        [document.documentCode]: document,
+        [groupId]: (current[groupId] || []).filter((item) => item.id !== documentId),
       };
     });
   };
 
-  const handleFileChange = (document: UploadRequirementItem) => {
-    return async (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
+  const validateBeforeSubmit = () => {
+    const errors: string[] = [];
 
-      if (!file) return;
-
-      const invalidMessage = validateUploadFile(file, document);
-
-      if (invalidMessage) {
-        setFieldErrors((current) => ({
-          ...current,
-          [document.documentCode]: invalidMessage,
-        }));
-        toast.error(invalidMessage);
-        event.target.value = "";
-        return;
-      }
-
-      if (!draftCode) {
-        const message = "Thiếu mã hồ sơ vay nháp. Vui lòng quay lại bước trước.";
-
-        setFieldErrors((current) => ({
-          ...current,
-          [document.documentCode]: message,
-        }));
-        toast.error(message);
-        event.target.value = "";
-        return;
-      }
-
-      setUploadingCode(document.documentCode);
-      setFieldErrors((current) => ({
-        ...current,
-        [document.documentCode]: "",
-      }));
-
-      try {
-        const response = await loanApplicationDraftApi.uploadDocument(
-          draftCode,
-          document.documentCode,
-          file,
-        );
-
-        if (response.success === false) {
-          throw new Error(response.message || "Upload chứng từ thất bại.");
-        }
-
-        updateUploadedDocument(toUploadedDocumentState(response.data, file, document));
-        setSubmitMessage("");
-        toast.success(response.message || "Upload chứng từ thành công.");
-      } catch (error) {
-        const message = getApiErrorMessage(error);
-
-        setFieldErrors((current) => ({
-          ...current,
-          [document.documentCode]: message,
-        }));
-        toast.error(message);
-      } finally {
-        setUploadingCode("");
-        event.target.value = "";
-      }
-    };
-  };
-
-  const removeDocument = (documentCode: string) => {
-    setUploadedByCode((current) => {
-      const removedDocument = current[documentCode];
-      const nextDocuments = { ...current };
-
-      delete nextDocuments[documentCode];
-      revokeLocalPreviewUrl(removedDocument);
-
-      if (previewFile?.documentCode === documentCode) {
-        setPreviewFile(null);
-      }
-
-      return nextDocuments;
-    });
-
-    const requirement = requirementGroups
-      .flatMap((group) => group.documents)
-      .find((document) => document.documentCode === documentCode);
-
-    if (requirement?.required) {
-      setFieldErrors((current) => ({
-        ...current,
-        [documentCode]: "Vui lòng upload chứng từ bắt buộc này.",
-      }));
-    }
-  };
-
-  const validateBeforeComplete = () => {
-    const nextFieldErrors: Record<string, string> = {};
-
-    missingRequiredDocuments.forEach((document) => {
-      nextFieldErrors[document.documentCode] = "Vui lòng upload chứng từ bắt buộc này.";
-    });
-
-    setFieldErrors((current) => ({
-      ...current,
-      ...nextFieldErrors,
-    }));
-
-    if (missingRequiredDocuments.length > 0) {
-      const message = `Thiếu chứng từ bắt buộc: ${missingRequiredDocuments
-        .map((document) => document.documentName)
-        .join(", ")}.`;
-
-      toast.error(message);
-      return false;
+    if (!hasRequiredStepData(step1CustomerIdentify, step2PreliminaryInfo, step3Data)) {
+      errors.push("Thiếu dữ liệu từ bước 1, 2 hoặc 3. Vui lòng quay lại kiểm tra.");
     }
 
-    return true;
+    if (getCompleteReferencePersons(finalReferences).length < 3) {
+      errors.push("Cần tối thiểu 3 người tham chiếu hợp lệ.");
+    }
+
+    if (!draftCode) {
+      errors.push("Thiếu mã hồ sơ vay nháp. Vui lòng quay lại bước 1 để tạo hồ sơ.");
+    }
+
+    if (!finalAssetData?.vehicleVariant) {
+      errors.push("Thiếu biến thể xe để lưu tài sản.");
+    }
+
+    if (!selectedProductCode) {
+      errors.push("Chưa chọn gói vay cuối cùng.");
+    }
+
+    const missingRequiredSlots = uploadGroups.flatMap((group) => {
+      return (group.slots || [])
+        .filter((slot) => slot.required)
+        .filter((slot) => {
+          return !(documentsByGroup[group.id] || []).some(
+            (file) => file.documentType === slot.id,
+          );
+        })
+        .map((slot) => slot.label);
+    });
+
+    if (missingRequiredSlots.length > 0) {
+      errors.push(`Thiếu chứng từ bắt buộc: ${missingRequiredSlots.join(", ")}.`);
+    }
+
+    return errors;
   };
 
-  const handleCompleteDocuments = () => {
+  const handleSubmitForApproval = async () => {
+    setSubmitError("");
     setSubmitMessage("");
 
-    if (!validateBeforeComplete()) return;
+    const validationErrors = validateBeforeSubmit();
 
-    setIsDocumentsCompleted(true);
-    const message = "Hồ sơ đã đủ chứng từ bắt buộc.";
+    if (validationErrors.length > 0) {
+      const message = validationErrors.join(" ");
 
-    setSubmitMessage(message);
-    toast.success(message);
+      setSubmitError(message);
+      toast.error(message);
+      return;
+    }
+
+    if (!finalAssetData) {
+      const message = "Thiếu dữ liệu tài sản.";
+
+      setSubmitError(message);
+      toast.error(message);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      setUploadedDocuments(uploadedDocumentMetadata);
+
+      const response = await loanApplicationDraftApi.submit(draftCode, {
+        documents: buildSubmitDocuments(documentsByGroup),
+      });
+
+      if (response.success === false) {
+        throw new Error(response.message || "Gửi hồ sơ phê duyệt thất bại.");
+      }
+
+      if (response.data?.applicationCode) {
+        setApplicationCode(response.data.applicationCode);
+      }
+      setCurrentStep(4);
+      const message = response.data?.message || response.message || "Hồ sơ đã gửi phê duyệt.";
+
+      setSubmitMessage(message);
+      toast.success(message);
+    } catch (error) {
+      console.error("Submit final approval error:", error);
+
+      if (error && typeof error === "object" && "raw" in error) {
+        console.error("Submit final approval response.data:", (error as { raw?: unknown }).raw);
+      }
+
+      const message = getApiErrorMessage(error);
+
+      setSubmitError(message);
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSubmitForApproval = () => {
-    toast.info("Chưa có API gửi phê duyệt cuối cho flow mới của màn 4.");
-  };
-
-  const previewFileKind = getPreviewFileKind(previewFile?.contentType, previewFile?.fileName);
-  const previewUrl = previewFile ? getBrowserPreviewUrl(previewFile) : "";
+  const previewFileKind = getPreviewFileKind(previewFile?.type, previewFile?.name);
 
   return (
     <div className="min-h-screen bg-[#f6faf5]">
@@ -588,234 +558,201 @@ function UploadDocumentsScreen() {
               icon={<Upload className="h-6 w-6 text-[#009b3a]" />}
               iconClassName="bg-[#e9f8ee]"
             >
-              {isLoadingRequirements && (
-                <div className="flex items-center gap-2 rounded-xl border border-[#dbe5dd] bg-white px-4 py-3 text-sm font-medium text-[#64748b]">
-                  <Loader2 className="h-4 w-4 animate-spin text-[#009b3a]" />
-                  Đang tải danh mục chứng từ...
-                </div>
-              )}
+              <Accordion
+                type="multiple"
+                defaultValue={uploadGroups.map((group) => group.id)}
+                className="space-y-4"
+              >
+                {uploadGroups.map((group) => {
+                  const groupFiles = documentsByGroup[group.id] || [];
 
-              {requirementsError && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-                  {requirementsError}
-                </div>
-              )}
-
-              {!isLoadingRequirements && !requirementsError && (
-                <Accordion
-                  type="multiple"
-                  value={openGroupCodes}
-                  onValueChange={setOpenGroupCodes}
-                  className="space-y-4"
-                >
-                  {requirementGroups.map((group) => {
-                    const uploadedCount = group.documents.filter(
-                      (document) => uploadedByCode[document.documentCode],
-                    ).length;
-
-                    return (
-                      <AccordionItem
-                        key={group.groupCode}
-                        value={group.groupCode}
-                        className="rounded-xl border border-[#dbe5dd] bg-[#fbfffc] px-5 transition-all duration-200 hover:border-[#b7e4c7] hover:shadow-sm"
-                      >
-                        <AccordionTrigger className="transition-colors hover:no-underline">
-                          <div className="flex w-full items-center justify-between pr-4">
-                            <div className="flex items-center gap-3">
-                              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#e9f8ee] text-[#009b3a]">
-                                <FolderOpen className="h-5 w-5" />
-                              </span>
-                              <div className="text-left">
-                                <p className="text-base font-bold text-[#111827]">{group.groupName}</p>
-                                <p className="mt-0.5 text-sm text-[#64748b]">
-                                  {uploadedCount}/{group.totalCount}
-                                </p>
-                              </div>
-                            </div>
+                  return (
+                    <AccordionItem
+                      key={group.id}
+                      value={group.id}
+                      className="rounded-xl border border-[#dbe5dd] bg-[#fbfffc] px-5 transition-all duration-200 hover:border-[#b7e4c7] hover:shadow-sm"
+                    >
+                      <AccordionTrigger className="transition-colors hover:no-underline">
+                        <div className="flex w-full items-center justify-between pr-4">
+                          <div>
+                            <p className="text-base font-bold text-[#111827]">{group.title}</p>
+                            <p className="mt-1 text-sm text-[#64748b]">
+                              {groupFiles.length}/{group.maxFiles}
+                            </p>
                           </div>
-                        </AccordionTrigger>
+                        </div>
+                      </AccordionTrigger>
 
-                        <AccordionContent>
-                          <div className="space-y-3">
-                            {group.documents.map((document) => {
-                              const inputKey = `${group.groupCode}-${document.documentCode}`;
-                              const uploadedDocument = uploadedByCode[document.documentCode];
-                              const fieldError = fieldErrors[document.documentCode];
-                              const isUploading = uploadingCode === document.documentCode;
-                              const kind = getPreviewFileKind(
-                                uploadedDocument?.contentType,
-                                uploadedDocument?.fileName,
-                              );
-                              const documentPreviewUrl = uploadedDocument
-                                ? getBrowserPreviewUrl(uploadedDocument)
-                                : "";
+                      <AccordionContent>
+                        <div className="space-y-4">
+                          {(group.slots || [{ id: `${group.id}-generic`, label: group.title }]).map((slot) => {
+                            const inputKey = `${group.id}-${slot.id}`;
+                            const slotFiles = groupFiles.filter(
+                              (file) => file.documentType === slot.id,
+                            );
 
-                              return (
-                                <div
-                                  key={document.documentCode}
-                                  className="rounded-xl border border-dashed border-[#c8d8cc] bg-white px-4 py-3 transition-colors duration-200 hover:border-[#009b3a]"
-                                >
-                                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                    <div className="min-w-0 flex-1">
-                                      <p className="font-semibold text-[#111827]">
-                                        {document.documentName}{" "}
-                                        {document.required && <span className="text-red-500">*</span>}
-                                      </p>
-                                      {uploadedDocument ? (
-                                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#64748b]">
-                                          <span className="max-w-full truncate font-medium text-[#111827]">
-                                            {uploadedDocument.fileName}
-                                          </span>
-                                          <span>{uploadedDocument.contentType || "Không rõ loại"}</span>
-                                          <span>{formatFileSize(uploadedDocument.size)}</span>
-                                          <span className="font-semibold text-[#15803d]">Đã tải</span>
-                                        </div>
-                                      ) : (
-                                        <p className="mt-1 text-sm text-[#64748b]">
-                                          {document.allowedExtensions.join(", ").toUpperCase()}.
-                                          Dung lượng tối đa {document.maxSizeMb}MB.
-                                        </p>
-                                      )}
-                                      {fieldError && (
-                                        <p className="mt-2 text-sm font-medium text-red-600">
-                                          {fieldError}
-                                        </p>
-                                      )}
-                                    </div>
-
-                                    <input
-                                      ref={(element) => {
-                                        fileInputRefs.current[inputKey] = element;
-                                      }}
-                                      type="file"
-                                      accept={getAcceptValue(document)}
-                                      className="hidden"
-                                      onChange={handleFileChange(document)}
-                                    />
-
-                                    <div className="flex shrink-0 items-center gap-2">
-                                      {uploadedDocument && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setPreviewFile(uploadedDocument)}
-                                          className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#dbe5dd] bg-[#f8fbf8] text-[#009b3a] transition-colors hover:border-[#009b3a]"
-                                          aria-label={`Xem ${uploadedDocument.fileName}`}
-                                        >
-                                          {kind === "image" && documentPreviewUrl && (
-                                            <img
-                                              src={documentPreviewUrl}
-                                              alt={uploadedDocument.fileName}
-                                              className="h-full w-full object-cover"
-                                            />
-                                          )}
-                                          {kind === "video" && documentPreviewUrl && (
-                                            <video
-                                              src={documentPreviewUrl}
-                                              className="h-full w-full object-cover"
-                                              muted
-                                              preload="metadata"
-                                            />
-                                          )}
-                                          {kind === "pdf" && (
-                                            <div className="flex flex-col items-center gap-0.5 text-[10px] font-bold">
-                                              <FileText className="h-5 w-5" />
-                                              PDF
-                                            </div>
-                                          )}
-                                          {kind === "other" && <FileText className="h-5 w-5" />}
-                                        </button>
-                                      )}
-
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        disabled={Boolean(uploadingCode)}
-                                        onClick={() => fileInputRefs.current[inputKey]?.click()}
-                                        className="h-10 rounded-xl border-[#009b3a] px-4 font-bold text-[#009b3a] transition-colors hover:bg-[#ecfdf3] hover:text-[#009b3a]"
-                                      >
-                                        {isUploading ? (
-                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        ) : (
-                                          <Upload className="mr-2 h-4 w-4" />
-                                        )}
-                                        {uploadedDocument ? "Thay thế" : "Tải lên"}
-                                      </Button>
-
-                                      {uploadedDocument && (
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          onClick={() => removeDocument(document.documentCode)}
-                                          className="h-10 w-10 rounded-lg p-0 text-red-500 hover:bg-red-50 hover:text-red-600"
-                                          aria-label={`Xóa ${uploadedDocument.fileName}`}
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                      )}
-                                    </div>
+                            return (
+                              <div
+                                key={slot.id}
+                                className="rounded-xl border border-dashed border-[#c8d8cc] bg-white p-4 transition-colors duration-200 hover:border-[#009b3a]"
+                              >
+                                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                  <div>
+                                    <p className="font-semibold text-[#111827]">
+                                      {slot.label} {slot.required && <span className="text-red-500">*</span>}
+                                    </p>
+                                    <p className="mt-1 text-sm text-[#64748b]">
+                                      {slot.accept?.startsWith("video")
+                                        ? "MP4, WEBM hoặc MOV. File chỉ giữ tạm trên màn này."
+                                        : "JPG, PNG, WEBP hoặc PDF. File chỉ giữ tạm trên màn này."}
+                                    </p>
                                   </div>
+
+                                  <input
+                                    ref={(element) => {
+                                      fileInputRefs.current[inputKey] = element;
+                                    }}
+                                    type="file"
+                                    accept={slot.accept || "image/*,.pdf"}
+                                    multiple={!group.slots}
+                                    className="hidden"
+                                    onChange={handleFilesChange(group, slot)}
+                                  />
+
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    disabled={groupFiles.length >= group.maxFiles && slotFiles.length === 0}
+                                    onClick={() => fileInputRefs.current[inputKey]?.click()}
+                                    className="h-11 rounded-xl border-[#009b3a] px-5 font-bold text-[#009b3a] transition-colors hover:bg-[#ecfdf3] hover:text-[#009b3a]"
+                                  >
+                                    <Upload className="mr-2 h-4 w-4" />
+                                    {slotFiles.length > 0 ? "Thay thế" : "Tải lên"}
+                                  </Button>
                                 </div>
-                              );
-                            })}
-                          </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    );
-                  })}
-                </Accordion>
-              )}
+
+                                {slotFiles.length > 0 && (
+                                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                    {slotFiles.map((file) => {
+                                      const kind = getPreviewFileKind(file.type, file.name);
+
+                                      return (
+                                        <div
+                                          key={file.id}
+                                          className="flex gap-3 rounded-xl border border-[#dbe5dd] bg-[#f8fbf8] p-3"
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={() => setPreviewFile(file)}
+                                            className="flex h-20 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#dbe5dd] bg-white text-[#009b3a] transition-colors hover:border-[#009b3a]"
+                                            aria-label={`Xem ${file.name}`}
+                                          >
+                                            {kind === "image" && (
+                                              <img
+                                                src={file.previewUrl}
+                                                alt={file.name}
+                                                className="h-full w-full object-cover"
+                                              />
+                                            )}
+                                            {kind === "video" && (
+                                              <video
+                                                src={file.previewUrl}
+                                                className="h-full w-full object-cover"
+                                                muted
+                                                preload="metadata"
+                                              />
+                                            )}
+                                            {kind === "pdf" && (
+                                              <div className="flex flex-col items-center gap-1 text-xs font-bold">
+                                                <FileText className="h-7 w-7" />
+                                                PDF
+                                              </div>
+                                            )}
+                                            {kind === "other" && (
+                                              <FileText className="h-7 w-7" />
+                                            )}
+                                          </button>
+
+                                          <div className="min-w-0 flex-1">
+                                            <p className="truncate text-sm font-bold text-[#111827]">
+                                              {file.name}
+                                            </p>
+                                            <p className="mt-1 text-xs text-[#64748b]">
+                                              {formatFileSize(file.size)}
+                                            </p>
+                                            <p className="mt-1 text-xs font-medium text-[#15803d]">
+                                              Đã chọn trong phiên làm việc
+                                            </p>
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                onClick={() => setPreviewFile(file)}
+                                                className="h-8 rounded-lg border-[#009b3a] px-3 text-xs font-bold text-[#009b3a] hover:bg-[#ecfdf3] hover:text-[#009b3a]"
+                                              >
+                                                <Eye className="mr-1 h-3.5 w-3.5" />
+                                                Xem chi tiết
+                                              </Button>
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                onClick={() => removeDocument(group.id, file.id)}
+                                                className="h-8 rounded-lg px-3 text-xs font-bold text-red-500 hover:bg-red-50 hover:text-red-600"
+                                              >
+                                                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                                Xóa
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
             </SectionCard>
 
             <SectionCard
-              title="Kết quả eKYC - Đối chiếu khuôn mặt"
-              icon={
-                isEkycReady ? (
-                  <CheckCircle2 className="h-6 w-6 text-[#009b3a]" />
-                ) : (
-                  <AlertCircle className="h-6 w-6 text-[#8a6d00]" />
-                )
-              }
-              iconClassName={isEkycReady ? "bg-[#e9f8ee]" : "bg-[#fff7db]"}
+              title="Kết quả eKYC — Đối chiếu khuôn mặt"
+              icon={<CheckCircle2 className="h-6 w-6 text-[#009b3a]" />}
+              iconClassName="bg-[#e9f8ee]"
             >
               <div className="rounded-xl border border-[#dbe5dd] bg-[#fbfffc] p-5">
                 <div className="flex items-start gap-3">
-                  {isEkycReady ? (
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 text-[#009b3a]" />
-                  ) : (
-                    <AlertCircle className="mt-0.5 h-5 w-5 text-[#8a6d00]" />
-                  )}
-                  <div className="w-full">
-                    <p className="font-bold text-[#111827]">Kết quả eKYC</p>
+                  <AlertCircle className="mt-0.5 h-5 w-5 text-[#8a6d00]" />
+                  <div>
+                    <p className="font-bold text-[#111827]">Chưa có API eKYC/face match để đối chiếu tự động.</p>
                     <div className="mt-3 space-y-2 text-sm text-[#64748b]">
                       <div className="flex items-center justify-between rounded-lg bg-white px-4 py-3">
-                        <span>Face match</span>
-                        <span
-                          className={
-                            isEkycReady
-                              ? "font-semibold text-[#15803d]"
-                              : "font-semibold text-[#8a6d00]"
-                          }
-                        >
-                          {isEkycReady ? "94% PASSED" : "Chưa có dữ liệu"}
-                        </span>
+                        <span>Đối chiếu khuôn mặt CCCD với ảnh chân dung</span>
+                        <span className="font-semibold text-[#8a6d00]">Chưa có dữ liệu</span>
                       </div>
                       <div className="flex items-center justify-between rounded-lg bg-white px-4 py-3">
-                        <span>Liveness</span>
-                        <span
-                          className={
-                            isEkycReady
-                              ? "font-semibold text-[#15803d]"
-                              : "font-semibold text-[#8a6d00]"
-                          }
-                        >
-                          {isEkycReady ? "97% PASSED" : "Chưa có dữ liệu"}
-                        </span>
+                        <span>Liveness Detection</span>
+                        <span className="font-semibold text-[#8a6d00]">Chưa có dữ liệu</span>
                       </div>
                     </div>
+                    <p className="mt-3 text-sm text-[#64748b]">
+                      Màn hình giữ vị trí kết quả để ghép BE sau. Không hiển thị kết quả nghiệp vụ giả.
+                    </p>
                   </div>
                 </div>
               </div>
             </SectionCard>
+
+            {submitError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+                {submitError}
+              </div>
+            )}
 
             {submitMessage && (
               <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-700">
@@ -833,24 +770,14 @@ function UploadDocumentsScreen() {
                 Quay lại
               </Button>
 
-              {isDocumentsCompleted ? (
-                <Button
-                  type="button"
-                  onClick={handleSubmitForApproval}
-                  className="h-11 rounded-xl bg-[#009b3a] px-8 font-bold text-white transition-colors hover:bg-[#008232]"
-                >
-                  Gửi đi phê duyệt
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  disabled={isLoadingRequirements || Boolean(uploadingCode)}
-                  onClick={handleCompleteDocuments}
-                  className="h-11 rounded-xl bg-[#009b3a] px-8 font-bold text-white transition-colors hover:bg-[#008232] disabled:opacity-70"
-                >
-                  Hoàn tất hồ sơ
-                </Button>
-              )}
+              <Button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleSubmitForApproval}
+                className="h-11 rounded-xl bg-[#009b3a] px-8 font-bold text-white transition-colors hover:bg-[#008232] disabled:opacity-70"
+              >
+                {isSubmitting ? "Đang gửi..." : "Gửi đi để phê duyệt"}
+              </Button>
             </div>
           </div>
         </section>
@@ -868,47 +795,34 @@ function UploadDocumentsScreen() {
           {previewFile && (
             <div className="flex max-h-[92vh] flex-col">
               <DialogHeader className="border-b border-[#dbe5dd] px-6 py-4">
-                <div className="flex items-start justify-between gap-4 pr-8">
-                  <div className="min-w-0">
-                    <DialogTitle className="truncate text-lg font-bold text-[#111827]">
-                      {previewFile.fileName}
-                    </DialogTitle>
-                    <DialogDescription className="mt-1 text-sm text-[#64748b]">
-                      {formatFileSize(previewFile.size)} - Đã upload
-                    </DialogDescription>
-                  </div>
-                  <DialogClose asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9 shrink-0 rounded-lg border-[#dbe5dd] px-4 text-sm font-bold text-[#111827] hover:bg-[#f6faf5]"
-                    >
-                      Đóng
-                    </Button>
-                  </DialogClose>
-                </div>
+                <DialogTitle className="truncate pr-8 text-lg font-bold text-[#111827]">
+                  {previewFile.name}
+                </DialogTitle>
+                <DialogDescription className="text-sm text-[#64748b]">
+                  {formatFileSize(previewFile.size)} • Đã chọn trong phiên làm việc
+                </DialogDescription>
               </DialogHeader>
 
               <div className="flex min-h-0 flex-1 items-center justify-center bg-[#f6faf5] p-4">
-                {previewFileKind === "image" && previewUrl && (
+                {previewFileKind === "image" && (
                   <img
-                    src={previewUrl}
-                    alt={previewFile.fileName}
+                    src={previewFile.previewUrl}
+                    alt={previewFile.name}
                     className="max-h-[74vh] max-w-full rounded-xl object-contain shadow-sm"
                   />
                 )}
 
-                {previewFileKind === "video" && previewUrl && (
+                {previewFileKind === "video" && (
                   <video
-                    src={previewUrl}
+                    src={previewFile.previewUrl}
                     controls
                     className="max-h-[74vh] max-w-full rounded-xl bg-black shadow-sm"
                   />
                 )}
 
-                {previewFileKind === "pdf" && previewUrl && (
+                {previewFileKind === "pdf" && (
                   <object
-                    data={previewUrl}
+                    data={previewFile.previewUrl}
                     type="application/pdf"
                     className="h-[74vh] w-full rounded-xl border border-[#dbe5dd] bg-white"
                   >
@@ -918,7 +832,7 @@ function UploadDocumentsScreen() {
                         Trình duyệt không hiển thị được PDF này.
                       </p>
                       <a
-                        href={previewUrl}
+                        href={previewFile.previewUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="font-bold text-[#009b3a] underline-offset-4 hover:underline"
@@ -929,7 +843,7 @@ function UploadDocumentsScreen() {
                   </object>
                 )}
 
-                {(!previewUrl || previewFileKind === "other") && (
+                {previewFileKind === "other" && (
                   <div className="flex min-h-[360px] w-full flex-col items-center justify-center gap-3 rounded-xl border border-[#dbe5dd] bg-white text-center text-[#64748b]">
                     <FileText className="h-14 w-14 text-[#009b3a]" />
                     <p className="font-semibold text-[#111827]">

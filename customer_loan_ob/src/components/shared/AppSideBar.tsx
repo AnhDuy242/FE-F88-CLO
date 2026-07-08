@@ -27,6 +27,8 @@ import {
   UserRound,
 } from "lucide-react";
 
+import { clearAllCccdCachedImages } from "@/features/customer-identify/storage/cccd-image-cache";
+import { useLoanOnboardingStore } from "@/features/loan-onboarding/storage/loan-onboarding.storage";
 import { Button } from "../ui/button";
 
 const menuItems = [
@@ -49,6 +51,9 @@ const menuItems = [
 
 export default function AppSideBar() {
   const location = useLocation();
+  const resetLoanOnboarding = useLoanOnboardingStore(
+    (state) => state.resetLoanOnboarding,
+  );
   const loanApplicationsActive = location.pathname.startsWith(
     "/loan/applications",
   );
@@ -113,6 +118,10 @@ export default function AppSideBar() {
           <Link
             to="/loan/customer-identify"
             className="group-data-[collapsible=icon]:hidden"
+            onClick={() => {
+              resetLoanOnboarding();
+              clearAllCccdCachedImages();
+            }}
           >
             <Button>Tạo hồ sơ mới</Button>
           </Link>

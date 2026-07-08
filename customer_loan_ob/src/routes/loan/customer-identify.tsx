@@ -332,6 +332,57 @@ function CustomerIdentifyScreen() {
     },
   });
 
+  useEffect(() => {
+    const storeIsEmpty =
+      !draftCode &&
+      !step1CustomerIdentify.draftCode &&
+      !step1CustomerIdentify.fullName &&
+      !step1CustomerIdentify.dateOfBirth &&
+      !step1CustomerIdentify.phoneNumber &&
+      !step1CustomerIdentify.identityNumber &&
+      !step1CustomerIdentify.ocrData &&
+      !step1CustomerIdentify.customerCheckResult &&
+      !step1CustomerIdentify.frontImageMeta &&
+      !step1CustomerIdentify.backImageMeta;
+    const formHasValues = Object.values(form.getValues()).some(Boolean);
+
+    if (!storeIsEmpty) {
+      return;
+    }
+
+    if (formHasValues) {
+      form.reset({
+        fullName: "",
+        dateOfBirth: "",
+        phoneNumber: "",
+        identityNumber: "",
+      });
+    }
+
+    revokeImagePreview(frontCccd);
+    revokeImagePreview(backCccd);
+    setFrontCccd(null);
+    setBackCccd(null);
+    setUploadError("");
+    setOcrStatus(null);
+    setResult(null);
+    setPendingOcrData(null);
+  }, [
+    backCccd,
+    draftCode,
+    form,
+    frontCccd,
+    step1CustomerIdentify.customerCheckResult,
+    step1CustomerIdentify.dateOfBirth,
+    step1CustomerIdentify.draftCode,
+    step1CustomerIdentify.backImageMeta,
+    step1CustomerIdentify.frontImageMeta,
+    step1CustomerIdentify.fullName,
+    step1CustomerIdentify.identityNumber,
+    step1CustomerIdentify.ocrData,
+    step1CustomerIdentify.phoneNumber,
+  ]);
+
   const watchedIdentifyValues = useWatch({
     control: form.control,
   }) as Partial<CustomerIdentifyFormValues>;

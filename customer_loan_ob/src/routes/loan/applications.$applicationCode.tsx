@@ -1,14 +1,10 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
-  BadgeCheck,
   Banknote,
   Car,
   CheckCircle2,
   FileCheck2,
-  FileText,
-  RefreshCw,
-  ShieldCheck,
   User,
 } from "lucide-react";
 import type React from "react";
@@ -387,12 +383,9 @@ function LoanApplicationDetailScreen() {
     const proposalPayload = getStepPayload(detail, "CUSTOMER_ASSET_LOAN_PROPOSAL");
     const customerDetail = asRecord(pick(proposalPayload, ["customerDetail"]));
     const assetDetail = asRecord(pick(proposalPayload, ["assetDetail"]));
-    const ocr = asRecord(pick(identifyPayload, ["ocrResult", "ocr", "idCardOcr"]));
-    const scoring = asRecord(pick(proposalPayload, ["scoring", "scoreResult", "riskCheck"]));
     const selectedOffer = asRecord(
       pick(proposalPayload, ["selectedLoanOffer", "selected_loan_offer", "selectedLoanProduct"])
     );
-    const loanRecommendation = asRecord(pick(proposalPayload, ["loanProductRecommendation"]));
     const selectedDeductions = asArray(pick(proposalPayload, ["selectedDeductionItems", "deductions"]));
 
     const marketPrice = pick(valuation, ["marketPriceAmount"])
@@ -401,10 +394,6 @@ function LoanApplicationDetailScreen() {
     const finalValue = pick(valuation, ["finalValueAmount"])
       || pick(asRecord(pick(proposalPayload, ["valuation"])), ["finalValue", "finalValueAmount"]);
     const requestedAmount = pick(loanInfo, ["requestedAmount"]);
-    const ltvActual =
-      Number(finalValue) > 0 && Number(requestedAmount) > 0
-        ? Math.round((Number(requestedAmount) / Number(finalValue)) * 100)
-        : undefined;
 
     return {
       customerGeneral: [
@@ -450,7 +439,7 @@ function LoanApplicationDetailScreen() {
         { label: "Khoản vay đề xuất", value: formatCurrency(pick(selectedOffer, ["finalRequestedAmount", "final_requested_amount"]) || requestedAmount) },
         { label: "Khoản vay phê duyệt", value: formatCurrency(requestedAmount) },
         { label: "Kỳ hạn", value: text(pick(loanInfo, ["loanTermName"]) || (pick(loanInfo, ["loanTermMonths"]) ? `${pick(loanInfo, ["loanTermMonths"])} tháng` : undefined)) },
-        { label: "LTV thực tế", value: ltvActual ? formatPercent(ltvActual) : formatPercent(pick(loanRecommendation, ["ltvPercent", "actualLtvPercent"])) },
+        { label: "LTV tối đa", value: formatPercent(pick(loanInfo, ["loanProductMaxLtvPercent"])) },
         { label: "Hình thức trả", value: text(pick(selectedOffer, ["repaymentMethod"]), "Trả góp hàng tháng") },
         { label: "Ngày trả", value: text(pick(selectedOffer, ["paymentDate"]), "Ngày 25 hàng tháng") },
         { label: "Mục đích vay", value: text(pick(loanInfo, ["loanPurposeName", "loanPurposeCode"])) },
@@ -460,25 +449,6 @@ function LoanApplicationDetailScreen() {
         { label: "Số tài khoản", value: text(pick(loanInfo, ["disbursementAccountNumber"])) },
         { label: "Chủ tài khoản", value: text(pick(loanInfo, ["disbursementAccountName"])) },
         { label: "Chi nhánh xử lý", value: text(pick(loanInfo, ["branch"])) },
-      ],
-      ocr: [
-        { label: "Số CCCD (OCR)", value: text(pick(ocr, ["identityNumber", "idNumber"]) || pick(customer, ["identityNumber"])) },
-        { label: "Họ tên (OCR)", value: text(pick(ocr, ["fullName"]) || pick(customer, ["fullName"])) },
-        { label: "Ngày sinh (OCR)", value: formatDate(pick(ocr, ["dateOfBirth"]) || pick(customer, ["dateOfBirth"])) },
-        { label: "Giới tính (OCR)", value: translateEnum(pick(ocr, ["gender"]) || pick(customer, ["gender"])) },
-        { label: "Ngày cấp", value: formatDate(pick(ocr, ["issuedDate"])) },
-        { label: "Nơi cấp", value: text(pick(ocr, ["issuedPlace"])) },
-        { label: "Địa chỉ thường trú (OCR)", value: text(pick(ocr, ["permanentAddress"]) || pick(customer, ["permanentAddress"])) },
-        { label: "Đối chiếu KH ↔ OCR", value: greenText(text(pick(ocr, ["matchResult"]), "Khớp dữ liệu hiện có")) },
-        { label: "Match score / Liveness", value: text(pick(ocr, ["matchScore"])) },
-      ],
-      scoring: [
-        { label: "Điểm tín dụng nội bộ", value: text(pick(scoring, ["score", "internalScore"])) },
-        { label: "Mức rủi ro", value: text(pick(scoring, ["riskLevel"]), "Thấp") },
-        { label: "CIC nhóm nợ", value: text(pick(scoring, ["cicGroup"]), "Nhóm 1") },
-        { label: "Blacklist", value: text(pick(scoring, ["blacklist"]), "Không") },
-        { label: "Đối chiếu CCCD (NCSC)", value: text(pick(scoring, ["identityCheck"]), "Hợp lệ") },
-        { label: "Đối chiếu SĐT", value: text(pick(scoring, ["phoneCheck"]), "Đúng chủ thuê bao") },
       ],
     };
   }, [detail]);
@@ -585,48 +555,6 @@ function LoanApplicationDetailScreen() {
             >
               <Panel title="Danh sách chứng từ đã upload">
                 <DocumentGrid documents={detail.documents || []} />
-              </Panel>
-              <Panel title="Kết quả OCR eKYC (CCCD)">
-                <div className="mb-3 flex items-center gap-2 text-[#009b3a]">
-                  <RefreshCw className="h-4 w-4" />
-                  <span className="text-sm font-semibold">Đối chiếu dữ liệu định danh</span>
-                </div>
-                <InfoGrid items={viewModel.ocr} />
-              </Panel>
-              <Panel title="Kết quả Scoring & Kiểm tra rủi ro">
-                <div className="mb-3 flex items-center gap-2 text-[#009b3a]">
-                  <ShieldCheck className="h-4 w-4" />
-                  <span className="text-sm font-semibold">Kiểm tra rủi ro</span>
-                </div>
-                <InfoGrid items={viewModel.scoring} />
-              </Panel>
-            </Section>
-
-            <Section
-              value="steps"
-              icon={<FileText className="h-5 w-5" />}
-              title="Tiến trình hồ sơ"
-            >
-              <Panel title="Các bước đã lưu payload">
-                <div className="grid gap-3 md:grid-cols-2">
-                  {(detail.steps || []).map((step) => (
-                    <div
-                      key={step.stepCode}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-[#d9e5dc] bg-white px-4 py-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-bold text-[#07130b]">
-                          {step.stepName || step.stepCode}
-                        </p>
-                        <p className="mt-1 text-sm text-[#64748b]">{step.stepCode}</p>
-                      </div>
-                      <Badge className="gap-1 rounded-full border-[#b8efc9] bg-[#e7faec] text-[#009b3a] hover:bg-[#e7faec]">
-                        <BadgeCheck className="h-3 w-3" />
-                        {text(step.status)}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
               </Panel>
             </Section>
           </Accordion>

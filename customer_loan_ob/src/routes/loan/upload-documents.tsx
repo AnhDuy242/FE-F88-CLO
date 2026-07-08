@@ -40,6 +40,7 @@ import {
 import {
   loanApplicationDraftApi,
   type SubmitLoanApplicationDraftDocument,
+  type UploadLoanApplicationDraftDocument,
 } from "@/features/loan-onboarding/api/loan-application-draft.api";
 
 export const Route = createFileRoute("/loan/upload-documents")({
@@ -255,12 +256,12 @@ function toSubmitDocumentCode(documentType: string) {
 
 function buildSubmitDocuments(
   documentsByGroup: Record<string, LocalDocumentFile[]>,
-): SubmitLoanApplicationDraftDocument[] {
+): UploadLoanApplicationDraftDocument[] {
   return Object.values(documentsByGroup)
     .flat()
     .map((document) => ({
       documentTypeCode: toSubmitDocumentCode(document.documentType),
-      fileUrl: document.previewUrl,
+      file: document.file,
       fileName: document.name,
     }));
 }

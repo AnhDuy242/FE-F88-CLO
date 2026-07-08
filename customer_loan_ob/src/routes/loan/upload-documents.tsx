@@ -116,8 +116,8 @@ const uploadGroups: UploadGroup[] = [
     title: "Cà vẹt xe",
     maxFiles: 2,
     slots: [
-      { id: "vehicle-registration-front", label: "Cà vẹt mặt trước", required: true },
-      { id: "vehicle-registration-back", label: "Cà vẹt mặt sau", required: true },
+      { id: "vehicle-registration-front", label: "Cà vẹt mặt trước" },
+      { id: "vehicle-registration-back", label: "Cà vẹt mặt sau" },
     ],
   },
   {
@@ -125,10 +125,10 @@ const uploadGroups: UploadGroup[] = [
     title: "Ảnh tài sản",
     maxFiles: 7,
     slots: [
-      { id: "asset-front", label: "Ảnh xe - Góc trước", required: true },
-      { id: "asset-back", label: "Ảnh xe - Góc sau", required: true },
-      { id: "asset-left", label: "Ảnh xe - Góc trái", required: true },
-      { id: "asset-right", label: "Ảnh xe - Góc phải", required: true },
+      { id: "asset-front", label: "Ảnh xe - Góc trước" },
+      { id: "asset-back", label: "Ảnh xe - Góc sau" },
+      { id: "asset-left", label: "Ảnh xe - Góc trái" },
+      { id: "asset-right", label: "Ảnh xe - Góc phải" },
       { id: "frame-number", label: "Ảnh số khung" },
       { id: "engine-number", label: "Ảnh số máy" },
       { id: "odo", label: "Ảnh đồng hồ ODO" },
@@ -139,12 +139,11 @@ const uploadGroups: UploadGroup[] = [
     title: "Chân dung Khách hàng",
     maxFiles: 3,
     slots: [
-      { id: "portrait", label: "Ảnh chân dung khách hàng", required: true },
+      { id: "portrait", label: "Ảnh chân dung khách hàng" },
       { id: "portrait-with-cccd", label: "Ảnh chân dung cầm CCCD" },
       {
         id: "portrait-video",
         label: "Video chân dung Khách hàng",
-        required: true,
         accept: "video/mp4,video/webm,video/quicktime",
       },
     ],
@@ -365,15 +364,17 @@ function UploadDocumentsScreen() {
     getStringFromRecord(selectedLoanProduct, ["productCode"]) ||
     getStringFromRecord(loanRecommendation, ["recommendedProductCode"]);
 
-  const missingUploadSlots = useMemo(() => {
+  const missingRequiredUploadSlots = useMemo(() => {
     return getAllUploadSlots().filter(({ group, slot }) => {
+      if (!slot.required) return false;
+
       return !(documentsByGroup[group.id] || []).some(
         (file) => file.documentType === slot.id,
       );
     });
   }, [documentsByGroup]);
 
-  const isUploadComplete = missingUploadSlots.length === 0;
+  const isUploadComplete = missingRequiredUploadSlots.length === 0;
 
   const getMissingDocumentsMessage = (labels: string[]) => {
     return `Vui lòng upload đủ chứng từ còn thiếu: ${labels.join(", ")}.`;
@@ -429,7 +430,7 @@ function UploadDocumentsScreen() {
               file,
               group.id,
               slot?.id || `${group.id}-${baseItems.length + 1}`,
-              true,
+              Boolean(slot?.required),
             ),
           );
 
@@ -482,8 +483,8 @@ function UploadDocumentsScreen() {
   };
 
   const validateRequiredDocuments = () => {
-    const missingLabels = missingUploadSlots.map(({ slot }) => slot.label);
-    const missingIds = missingUploadSlots.map(({ slot }) => slot.id);
+    const missingLabels = missingRequiredUploadSlots.map(({ slot }) => slot.label);
+    const missingIds = missingRequiredUploadSlots.map(({ slot }) => slot.id);
 
     setMissingDocumentIds(missingIds);
 
@@ -530,7 +531,7 @@ function UploadDocumentsScreen() {
       errors.push("Chưa chọn gói vay cuối cùng.");
     }
 
-    const missingRequiredSlots = missingUploadSlots.map(({ slot }) => slot.label);
+    const missingRequiredSlots = missingRequiredUploadSlots.map(({ slot }) => slot.label);
 
     if (missingRequiredSlots.length > 0) {
       errors.push(getMissingDocumentsMessage(missingRequiredSlots));
@@ -548,7 +549,7 @@ function UploadDocumentsScreen() {
     if (validationErrors.length > 0) {
       const message = validationErrors.join(" ");
 
-      setMissingDocumentIds(missingUploadSlots.map(({ slot }) => slot.id));
+      setMissingDocumentIds(missingRequiredUploadSlots.map(({ slot }) => slot.id));
       setSubmitError(message);
       toast.error(message);
       return;
@@ -669,7 +670,13 @@ function UploadDocumentsScreen() {
                                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                   <div className="min-w-0 flex-1">
                                     <p className="font-semibold text-[#111827]">
-                                      {slot.label} <span className="text-red-500">*</span>
+                                      {slot.label}
+                                      {slot.required && (
+                                        <>
+                                          {" "}
+                                          <span className="text-red-500">*</span>
+                                        </>
+                                      )}
                                     </p>
                                     {uploadedFile ? (
                                       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#64748b]">
@@ -796,7 +803,7 @@ function UploadDocumentsScreen() {
                     <p className="font-bold text-[#111827]">
                       {isUploadComplete
                         ? "Hồ sơ đã đủ điều kiện đối chiếu."
-                        : "Vui lòng upload đủ hồ sơ để đối chiếu."}
+                        : "Vui lòng upload CCCD mặt trước và CCCD mặt sau để đối chiếu."}
                     </p>
                     <div className="mt-3 space-y-2 text-sm text-[#64748b]">
                       <div className="flex items-center justify-between rounded-lg bg-white px-4 py-3">
@@ -808,7 +815,7 @@ function UploadDocumentsScreen() {
                               : "font-semibold text-[#8a6d00]"
                           }
                         >
-                          {isUploadComplete ? "94% PASSED" : "Cần upload đủ hồ sơ"}
+                          {isUploadComplete ? "94% PASSED" : "Cần upload đủ CCCD"}
                         </span>
                       </div>
                       <div className="flex items-center justify-between rounded-lg bg-white px-4 py-3">
@@ -820,7 +827,7 @@ function UploadDocumentsScreen() {
                               : "font-semibold text-[#8a6d00]"
                           }
                         >
-                          {isUploadComplete ? "97% PASSED" : "Cần upload đủ hồ sơ"}
+                          {isUploadComplete ? "97% PASSED" : "Cần upload đủ CCCD"}
                         </span>
                       </div>
                     </div>
